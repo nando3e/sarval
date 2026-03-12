@@ -2,6 +2,8 @@
 # Uso: docker compose -f docker-compose.external-db.yml up --build
 # Definir en .env: DATABASE_URL=postgres://user:pass@host:puerto/base
 
+# En Dokploy: añadir redes para que el dominio funcione (igual que docker-compose.yml)
+
 services:
   backend:
     build: ./backend
@@ -16,6 +18,9 @@ services:
       JWT_EXPIRES_IN: 7d
       DATABASE_URL: ${DATABASE_URL}
     restart: unless-stopped
+    networks:
+      - default
+      - dokploy-network
 
   frontend:
     build: ./frontend
@@ -24,3 +29,10 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    networks:
+      - default
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
