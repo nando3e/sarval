@@ -1,0 +1,46 @@
+# SARVAL - Listo para Dokploy y Docker Compose
+# Requiere .env en la raíz (copiar desde .env.example)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sarval}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sarval_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-sarval}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sarval -d sarval"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      SUPERADMIN_USER: ${SUPERADMIN_USER:-admin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-cambiar_en_produccion}
+      JWT_SECRET: ${JWT_SECRET:-clave_secreta_cambiar}
+      JWT_EXPIRES_IN: 7d
+      DATABASE_URL: ${DATABASE_URL:-postgres://sarval:sarval_secret@postgres:5432/sarval}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

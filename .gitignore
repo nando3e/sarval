@@ -1,0 +1,29 @@
+# Dependencias
+node_modules/
+
+# Entorno y secretos (nunca subir a GitHub)
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Build
+dist/
+build/
+
+# Logs y temporales
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Uploads locales (si los guardas en disco)
+backend/uploads/
+uploads/

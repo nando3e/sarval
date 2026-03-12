@@ -1,0 +1,315 @@
+function main(workbook: ExcelScript.Workbook) {
+  // ============================
+  // 0) PARÁMETROS
+  // ============================
+  const pTbl = workbook.getWorksheet("Parametros").getTable("tblParam");
+  function getNum(name: string): number {
+    const vals = pTbl.getRangeBetweenHeaderAndTotal().getValues();
+    for (let i = 0; i < vals.length; i++) {
+      if (String(vals[i][0]).trim() === name) {
+        const raw = vals[i][1];
+        if (typeof raw === "number") return raw;
+        const n = Number(String(raw).replace(",", "."));
+        return isNaN(n) ? 0 : n;
+      }
+    }
+    throw new Error("Parámetro no encontrado: " + name);
+  }
+  const CAP: number = getNum("Capacidad_silo_tn");
+  const CONS_H: number = getNum("Consumo_tn_h");
+  const NIVEL0: number = getNum("Nivel_inicial_tn");
+  const PASO: number = getNum("Paso_minutos");
+  const STEPS_H: number = 60 / PASO;
+  const CONS_STEP: number = CONS_H / STEPS_H;
+
+  const idxDay: string[] = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  const dayIndex: { [k: string]: number } = {
+    "Lunes": 0, "LUNES": 0, "lunes": 0,
+    "Martes": 1, "MARTES": 1, "martes": 1,
+    "Miércoles": 2, "MIERCOLES": 2, "Miercoles": 2, "miércoles": 2, "miercoles": 2,
+    "Jueves": 3, "JUEVES": 3, "jueves": 3,
+    "Viernes": 4, "VIERNES": 4, "viernes": 4,
+    "Sábado": 5, "Sabado": 5, "SABADO": 5, "sábado": 5, "sabado": 5
+  };
+
+  // START/END como funciones (constantes de tiempo de plan)
+  function START(): number { return 6 * STEPS_H; }             // Lunes 06:00
+  function END(): number { return 5 * 24 * STEPS_H + 22 * STEPS_H; } // Sáb 22:00
+
+  // ============================
+  // Helpers robustos de fecha/hora/num
+  // ============================
+  // Convierte nº serial Excel → Date (UTC) (excel epoch: 1899-12-30)
+  function excelSerialToDate(serial: number): Date {
+    const millis = Math.round((serial - Math.floor(serial)) * 24 * 60 * 60 * 1000);
+    const epoch = Date.UTC(1899, 11, 30 + Math.floor(serial));
+    return new Date(epoch + millis);
+  }
+
+  // Devuelve índice y nombre de día a partir de texto/fecha/nº Excel
+  function coerceDay(v: unknown): { dIdx: number, dName: string } {
+    if (typeof v === "number") {
+      const dt = excelSerialToDate(v);
+      const js = dt.getUTCDay(); // 0..6
+      const map = [0, 0, 1, 2, 3, 4, 5]; // Dom→Lun(0), Lun→0, Mar→1, ...
+      const dIdx = (js === 0) ? 0 : map[js];
+      return { dIdx, dName: idxDay[dIdx] };
+    }
+    const s = String(v || "").trim();
+    if (!s) return { dIdx: 0, dName: "Lunes" };
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) { // fecha texto
+      const dt = new Date(s + "T00:00:00Z");
+      const js = dt.getUTCDay();
+      const map = [0, 0, 1, 2, 3, 4, 5];
+      const dIdx = (js === 0) ? 0 : map[js];
+      return { dIdx, dName: idxDay[dIdx] };
+    }
+    // variantes de texto
+    const norm = ((): string => {
+      if (s === "MIERCOLES") return "Miércoles";
+      if (s === "SABADO") return "Sábado";
+      const low = s.toLowerCase();
+      if (low === "miercoles") return "Miércoles";
+      if (low === "sabado") return "Sábado";
+      return low.charAt(0).toUpperCase() + low.slice(1);
+    })();
+    const dIdx = dayIndex[norm] ?? 0;
+    return { dIdx, dName: idxDay[dIdx] };
+  }
+
+  // Convierte varios formatos de hora → { step, hhmm }
+  function coerceTimeToStep(v: unknown): { step: number, hhmm: string } {
+    const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+    function fromHM(hh: number, mm: number): { step: number, hhmm: string } {
+      const H = clamp(Math.floor(hh), 0, 23);
+      const M = clamp(Math.floor(mm), 0, 59);
+      const step = H * STEPS_H + Math.round(M / PASO);
+      const hhmm = String(H).padStart(2, "0") + ":" + String(M).padStart(2, "0");
+      return { step, hhmm };
+    }
+
+    if (typeof v === "number") {
+      const dt = excelSerialToDate(v); // nº Excel → UTC
+      return fromHM(dt.getUTCHours(), dt.getUTCMinutes());
+    }
+
+    const s = String(v || "").trim();
+    if (!s) return fromHM(0, 0);
+
+    if (/^\d{1,2}[,.]\d{1,2}$/.test(s)) {           // 11,30 / 11.30
+      const parts = s.split(/[,.]/);
+      return fromHM(Number(parts[0]), Number(parts[1]));
+    }
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {       // 11:30[:SS]
+      const a = s.split(":");
+      return fromHM(Number(a[0]), Number(a[1]));
+    }
+    const iso = new Date(s);                         // “2026-02-12 11:30”
+    if (!Number.isNaN(iso.getTime())) {
+      return fromHM(iso.getHours(), iso.getMinutes());
+    }
+    return fromHM(0, 0);
+  }
+
+  // Formatea paso → "HH:MM" (definida como FUNCIÓN normal → hoisting OK)
+  function stepToHHMM(s: number): string {
+    const hh = Math.floor((s % (24 * STEPS_H)) / STEPS_H);
+    const mm = (s % STEPS_H) * PASO;
+    return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+  }
+
+  // Números con coma o punto → number
+  function toNumberEU(v: unknown): number {
+    if (typeof v === "number") return v;
+    const s = String(v || "").trim().replace(",", ".");
+    const n = Number(s);
+    return isNaN(n) ? 0 : n;
+  }
+
+  // ============================
+  // 1) LEER BASE (rango A2:F)
+  // ============================
+  const wsB = workbook.getWorksheet("Planificacion Base");
+  const usedB = wsB.getUsedRange().getValues();
+  let lastRow = 1;
+  for (let r = usedB.length - 1; r >= 1; r--) {
+    if (String(usedB[r][0] ?? "").trim() !== "") { lastRow = r + 1; break; }
+  }
+  const baseVals: (string | number | boolean)[][] = wsB.getRange(`A2:F${lastRow}`).getValues();
+
+  // ============================
+  // 2) LEER VIAJES EXTRAS (tblViajes)
+  // ============================
+  const wsV = workbook.getWorksheet("Viajes Extras");
+  const tblV = wsV.getTable("tblViajes");
+  const vRows: (string | number | boolean)[][] = tblV.getRangeBetweenHeaderAndTotal().getValues();
+
+  // ============================
+  // 3) ARMAR LISTA DE CAMIONES (Base + Extras)
+  // ============================
+  type Truck = {
+    id: number; tn: number; crit: boolean; day: number; arr: number; hReal: string;
+    horaPrev: string; prov: string; extra: boolean;
+  };
+  const trucks: Truck[] = [];
+
+  // 3.1 Base → A:ID B:Día C:Hora D:Proveedor E:Toneladas F:Crítico
+  for (let i = 0; i < baseVals.length; i++) {
+    const row = baseVals[i];
+    const id = Number(toNumberEU(row[0])); if (!id) continue;
+    const dy = coerceDay(row[1]);
+    const tm = coerceTimeToStep(row[2]);
+    const prov = String(row[3] || "");
+    const tn = toNumberEU(row[4]);
+    const crit = (String(row[5] || "").trim().toLowerCase() === "sí");
+    let arr = dy.dIdx * 24 * STEPS_H + tm.step;
+    while (arr >= 6 * 24 * STEPS_H) arr -= 6 * 24 * STEPS_H; // seguridad
+    trucks.push({
+      id, tn, crit, day: dy.dIdx, arr,
+      hReal: tm.hhmm, horaPrev: tm.hhmm, prov, extra: false
+    });
+  }
+
+  // 3.2 Viajes extras → A:Numero_viaje B:Dia_previsto C:Hora_prevista D:Toneladas_previstas E:Proveedor F:Critico
+  for (let i = 0; i < vRows.length; i++) {
+    const num = Number(toNumberEU(vRows[i][0])); if (!num) continue;
+    const dy = coerceDay(vRows[i][1]);
+    const tm = coerceTimeToStep(vRows[i][2]);
+    const tn = toNumberEU(vRows[i][3]);
+    const prov = String(vRows[i][4] || "");
+    const crit = (String(vRows[i][5] || "").trim().toLowerCase() === "sí");
+    let arr = dy.dIdx * 24 * STEPS_H + tm.step;
+    while (arr >= 6 * 24 * STEPS_H) arr -= 6 * 24 * STEPS_H;
+
+    const extraID = 900000 + num; // evita colisiones con Base
+    trucks.push({
+      id: extraID, tn, crit, day: dy.dIdx, arr,
+      hReal: tm.hhmm, horaPrev: tm.hhmm, prov, extra: true
+    });
+  }
+
+  // Orden por llegada
+  trucks.sort((a, b) => (a.arr - b.arr) || (a.id - b.id));
+
+  // ============================
+  // 4) MOTOR (prioridad suavizada)
+  // ============================
+  let level: number = NIVEL0;
+  const qC: Truck[] = [];
+  const qN: Truck[] = [];
+  const finalIdx: { [id: number]: number } = {};
+  const entries: { [t: number]: number } = {};
+  let pos: number = 0;
+
+  for (let t = START(); t <= END(); t++) {
+    while (pos < trucks.length && trucks[pos].arr === t) {
+      (trucks[pos].crit ? qC : qN).push(trucks[pos]); pos++;
+    }
+    let space = CAP - level;
+
+    // críticos si caben
+    let moved = true;
+    while (moved && qC.length > 0) {
+      moved = false;
+      if (qC[0].tn <= space) {
+        const tr = qC.shift() as Truck;
+        level += tr.tn; space = CAP - level;
+        finalIdx[tr.id] = t; entries[t] = (entries[t] || 0) + tr.tn; moved = true;
+      } else break;
+    }
+    // no críticos si caben
+    moved = true;
+    while (moved && qN.length > 0 && space > 0) {
+      moved = false;
+      if (qN[0].tn <= space) {
+        const tr = qN.shift() as Truck;
+        level += tr.tn; space = CAP - level;
+        finalIdx[tr.id] = t; entries[t] = (entries[t] || 0) + tr.tn; moved = true;
+      }
+    }
+    const cons = Math.min(CONS_STEP, level);
+    level -= cons;
+  }
+  // resto → END
+  for (let i = 0; i < qC.length; i++) { const tr = qC[i]; finalIdx[tr.id] = END(); entries[END()] = (entries[END()] || 0) + tr.tn; }
+  for (let i = 0; i < qN.length; i++) { const tr = qN[i]; finalIdx[tr.id] = END(); entries[END()] = (entries[END()] || 0) + tr.tn; }
+
+  // ============================
+  // 5) RECONSTRUIR SECUENCIACIÓN (tblSeq)
+  // ============================
+  const wsS = workbook.getWorksheet("Secuenciacion");
+  const headers: string[] = ["ID", "Día", "Hora_prevista", "Proveedor", "Toneladas", "Crítico",
+    "Retraso_h", "Nueva_Hora", "Estado", "Viaje_Extra",
+    "Hora_real", "ClaveHoraReal", "Día_final", "Hora_final", "Retraso_capacidad_h"];
+
+  // localizar cabecera "ID" (escaneo primeras 30 filas)
+  let hdrRow: number = 4;
+  const usedS = wsS.getUsedRange().getValues();
+  for (let r = 0; r < Math.min(30, usedS.length); r++) {
+    if (String(usedS[r][0]).trim() === "ID") { hdrRow = r; break; }
+  }
+  wsS.getRangeByIndexes(hdrRow, 0, 1, headers.length).setValues([headers]);
+  const startRow: number = hdrRow + 1;
+
+  // construir salida
+  const out: Array<Array<string | number>> = [];
+  for (const tr of trucks) {
+    const fin = finalIdx[tr.id];
+    const dia = idxDay[tr.day];
+    const horaFinal = (fin !== undefined) ? stepToHHMM(fin) : "";
+    const diaFinal = (fin !== undefined) ? idxDay[Math.floor(fin / (24 * STEPS_H))] : "";
+    const retCap = (fin !== undefined) ? (fin - tr.arr) / STEPS_H : 0;
+
+    out.push([
+      tr.id,
+      dia,
+      tr.horaPrev,
+      tr.prov,
+      tr.tn,
+      tr.crit ? "Sí" : "No",
+      "", "", "",                          // Retraso_h, Nueva_Hora, Estado
+      tr.extra ? "Sí" : "",                // Viaje_Extra
+      tr.hReal,
+      `${dia} ${tr.hReal}`,
+      diaFinal,
+      horaFinal,
+      retCap
+    ]);
+  }
+
+  // borrar tabla previa y crearla con tamaño exacto
+  try { wsS.getTable("tblSeq").delete(); } catch (e) { }
+  if (out.length > 0) {
+    const endRow: number = startRow + out.length - 1;
+    wsS.getRange(`A${startRow}:O${endRow}`).setValues(out);
+    const newT: ExcelScript.Table = wsS.addTable(`A${hdrRow + 1}:O${endRow}`, true);
+    newT.setName("tblSeq");
+  }
+
+  // ============================
+  // 6) SIMULACIÓN DEL SILO
+  // ============================
+  const wsM = workbook.getWorksheet("Simulacion Silo");
+  const usedM = wsM.getUsedRange();
+  if (usedM) { const rows = usedM.getRowCount(); if (rows > 1) wsM.getRange(`A2:H${rows}`).clear(ExcelScript.ClearApplyTo.contents); }
+  let lvl2: number = NIVEL0, wr: number = 2;
+  for (let t = START(); t <= END(); t++) {
+    const d = Math.floor(t / (24 * STEPS_H)), hTxt = stepToHHMM(t), ent = entries[t] || 0;
+    lvl2 = Math.min(CAP, lvl2 + ent); const cons = Math.min(CONS_STEP, lvl2); lvl2 -= cons;
+    wsM.getCell(wr - 1, 0).setValue(t);
+    wsM.getCell(wr - 1, 1).setValue(idxDay[d]);
+    wsM.getCell(wr - 1, 2).setValue(hTxt);
+    wsM.getCell(wr - 1, 3).setValue(idxDay[d] + " " + hTxt);
+    wsM.getCell(wr - 1, 4).setValue(ent);
+    wsM.getCell(wr - 1, 5).setValue(cons);
+    wsM.getCell(wr - 1, 6).setValue(lvl2);
+    wsM.getCell(wr - 1, 7).setValue(cons < CONS_STEP ? "Sí" : "No");
+    wr++;
+  }
+
+  // ============================
+  // 7) REFRESCO DASHBOARD
+  // ============================
+  const dash = workbook.getWorksheet("Dashboard");
+  const tmp = dash.getCell(0, 0).getValue(); dash.getCell(0, 0).setValue(tmp);
+}
