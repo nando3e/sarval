@@ -1,0 +1,26 @@
+# SARVAL - Usar con Postgres EXTERNO (ej. base ya poblada)
+# Uso: docker compose -f docker-compose.external-db.yml up --build
+# Definir en .env: DATABASE_URL=postgres://user:pass@host:puerto/base
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      SUPERADMIN_USER: ${SUPERADMIN_USER:-admin}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-cambiar_en_produccion}
+      JWT_SECRET: ${JWT_SECRET:-clave_secreta_cambiar}
+      JWT_EXPIRES_IN: 7d
+      DATABASE_URL: ${DATABASE_URL}
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

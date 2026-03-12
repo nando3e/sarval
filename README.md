@@ -58,6 +58,20 @@ docker compose up --build
 
 El Compose levanta **PostgreSQL**, backend y frontend. Los datos de Postgres se persisten en el volumen `postgres_data`.
 
+### Usar una base de datos Postgres externa (ya poblada)
+
+Si quieres conectar a un Postgres que ya tienes (por ejemplo para test con datos existentes), basta con definir **solo** `DATABASE_URL` con la URL de esa base:
+
+- **Con el compose normal:** pon en `.env` (o en las variables de Dokploy) tu URL, por ejemplo  
+  `DATABASE_URL=postgres://usuario:password@host:puerto/nombre_base`  
+  El backend usará esa base. El contenedor `postgres` del compose seguirá arrancando pero no se usará.
+
+- **Sin levantar Postgres del compose:** usa el compose alternativo que no incluye Postgres:
+  ```bash
+  docker compose -f docker-compose.external-db.yml up --build
+  ```
+  En Dokploy: en “Compose file” indica `docker-compose.external-db.yml` y define solo `DATABASE_URL` (y el resto de variables del backend).
+
 ## Despliegue en Dokploy
 
 1. **Crea el repositorio en GitHub** (si aún no está subido):
@@ -85,7 +99,7 @@ El Compose levanta **PostgreSQL**, backend y frontend. Los datos de Postgres se 
 
 3. **Puertos:** El frontend queda en el puerto que Dokploy asigne (ej. 3000). La API en 4000. Configura dominio/reverso si lo necesitas.
 
-4. **Base de datos externa (opcional):** Si en Dokploy usas un Postgres gestionado por otro servicio, deja de usar el servicio `postgres` del compose (comenta el servicio y el `depends_on` de `backend` a `postgres`) y define solo `DATABASE_URL` apuntando a ese servidor.
+4. **Base de datos externa (test o Postgres ya poblado):** Define `DATABASE_URL` con la URL de tu Postgres (usuario, contraseña, host, puerto, nombre de base). Para no levantar el Postgres del compose, en Dokploy usa como archivo de Compose: `docker-compose.external-db.yml`.
 
 ## Estructura del proyecto
 
