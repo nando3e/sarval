@@ -53,10 +53,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- **App:** http://localhost:3000  
-- **API directa:** http://localhost:4000  
+- **App y API:** Docker asigna puertos libres en el host. Tras `docker compose up`, ejecuta `docker compose ps` para ver las URLs (ej. `0.0.0.0:32768->80/tcp` para el frontend). En **Dokploy** la URL suele mostrarse en el panel de la aplicación.
 
-El Compose levanta **PostgreSQL**, backend y frontend. Los datos de Postgres se persisten en el volumen `postgres_data`.
+El Compose levanta **PostgreSQL**, backend y frontend. Los datos de Postgres se persisten en el volumen `postgres_data`. Al no fijar puertos en el host se evitan errores tipo "port is already allocated".
 
 ### Usar una base de datos Postgres externa (ya poblada)
 
@@ -99,7 +98,9 @@ Si quieres conectar a un Postgres que ya tienes (por ejemplo para test con datos
 
 3. **Puertos:** El frontend queda en el puerto que Dokploy asigne (ej. 3000). La API en 4000. Configura dominio/reverso si lo necesitas.
 
-4. **Base de datos externa (test o Postgres ya poblado):** Define `DATABASE_URL` con la URL de tu Postgres (usuario, contraseña, host, puerto, nombre de base). Para no levantar el Postgres del compose, en Dokploy usa como archivo de Compose: `docker-compose.external-db.yml`.
+4. **Base de datos externa (test o Postgres ya poblado):** Define `DATABASE_URL` con la URL de tu Postgres. Para no levantar el Postgres del compose, en Dokploy usa como archivo de Compose: `docker-compose.external-db.yml`.
+
+5. **Warnings en Dokploy:** Si ves "variable is not set" para `POSTGRES_USER` u otras, define esas variables en la configuración de la app (aunque tengan valor por defecto en el compose). La variable con nombre largo tipo `JJGHRRHFIH...` la inyecta Dokploy; puedes ignorarla o dejarla en blanco.
 
 ## Estructura del proyecto
 

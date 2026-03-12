@@ -20,7 +20,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "${BACKEND_PORT:-4000}:4000"
+      - "4000"
     environment:
       NODE_ENV: production
       PORT: 4000
@@ -37,7 +37,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "80"
     depends_on:
       - backend
     restart: unless-stopped
