@@ -71,7 +71,13 @@ export default function Dashboard() {
     ? 'Semana actual'
     : (planId === weeks.proxima?.id ? 'Próxima semana' : 'Semana histórica');
 
-  const filteredSeries = dayFilter === 'all' ? series : series.filter((s) => s.day === dayFilter);
+  const baseFiltered = dayFilter === 'all' ? series : series.filter((s) => s.day === dayFilter);
+  const filteredSeries = baseFiltered.map((s, i, arr) => {
+    const hasBox = (s.box_entry_tons || 0) > 0;
+    const prevHasBox = i > 0 && (arr[i - 1].box_entry_tons || 0) > 0;
+    const showBoxLine = hasBox || prevHasBox;
+    return { ...s, silo_level_box: showBoxLine ? s.silo_level : null };
+  });
   const activeDays = [...new Set(series.map((s) => s.day))].filter((d) => DAY_TICKS.includes(d));
   const noData = series.length === 0;
 
@@ -170,7 +176,7 @@ export default function Dashboard() {
               <span className={styles.legendItem}><span className={styles.dot} style={{ background: 'var(--accent)' }} />Nivel tolva</span>
               <span className={styles.legendItem}><span className={styles.dotLine} style={{ background: 'var(--text-muted)', opacity: 0.5 }} />Capacidad</span>
               {filteredSeries.some((s) => s.box_entry_tons > 0) && (
-                <span className={styles.legendItem}><span className={styles.dot} style={{ background: '#f59e0b' }} />Entrada boxes</span>
+                <span className={styles.legendItem}><span className={styles.dotLine} style={{ background: '#f59e0b' }} />Tramo con boxes</span>
               )}
             </div>
             <ResponsiveContainer width="100%" height={380}>
@@ -204,6 +210,7 @@ export default function Dashboard() {
                 })}
                 <Bar dataKey="box_entry_tons" fill="#f59e0b" opacity={0.5} barSize={3} isAnimationActive={false} />
                 <Line type="linear" dataKey="silo_level" stroke="var(--accent)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                <Line type="linear" dataKey="silo_level_box" stroke="#f59e0b" strokeWidth={3} dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} legendType="none" />
               </ComposedChart>
             </ResponsiveContainer>
           </>
