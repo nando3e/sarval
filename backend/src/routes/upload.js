@@ -23,6 +23,21 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     const planId = await resolvePlanId(req);
 
+    // Resolver tolva: del body, o la primera activa como default
+    let defaultTolvaId = req.body?.tolva_id ? parseInt(req.body.tolva_id, 10) : null;
+    if (!defaultTolvaId) {
+      const tolvaRow = await pool.query('SELECT id FROM tolvas WHERE activa = true ORDER BY numero LIMIT 1');
+      defaultTolvaId = tolvaRow.rows[0]?.id ?? null;
+    }
+    if (!defaultTolvaId) {
+      return res.status(400).json({ error: 'No hay tolvas activas. Crea al menos una tolva antes de subir una planificación.' });
+    }
+
+    // Mapa de numero de tolva -> id para resolver columna "Tolva" del archivo
+    const allTolvas = await pool.query('SELECT id, numero, nombre FROM tolvas WHERE activa = true');
+    const tolvaByNum = new Map(allTolvas.rows.map((t) => [t.numero, t.id]));
+    const tolvaByName = new Map(allTolvas.rows.map((t) => [t.nombre.toLowerCase().trim(), t.id]));
+
     await pool.query("DELETE FROM sequence_results WHERE plan_id = $1", [planId]);
     await pool.query("DELETE FROM silo_simulation WHERE plan_id = $1", [planId]);
     await pool.query("DELETE FROM trips WHERE plan_id = $1 AND is_extra = false", [planId]);
@@ -31,14 +46,24 @@ router.post('/', upload.single('file'), async (req, res) => {
     for (let b = 0; b < trips.length; b += batchSize) {
       const batch = trips.slice(b, b + batchSize);
       const values = batch.map((_, i) => {
-        const o = i * 7;
-        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7})`;
+        const o = i * 8;
+        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8})`;
       }).join(', ');
-      const params = batch.flatMap((t) => [
-        planId, t.trip_number, t.day, t.scheduled_time, t.supplier, t.tons, t.is_critical,
-      ]);
+      const params = batch.flatMap((t) => {
+        let tid = defaultTolvaId;
+        if (t.tolva != null) {
+          const num = Number(t.tolva);
+          if (!Number.isNaN(num) && tolvaByNum.has(num)) {
+            tid = tolvaByNum.get(num);
+          } else {
+            const byName = tolvaByName.get(String(t.tolva).toLowerCase().trim());
+            if (byName) tid = byName;
+          }
+        }
+        return [planId, t.trip_number, t.day, t.scheduled_time, t.supplier, t.tons, t.is_critical, tid];
+      });
       await pool.query(
-        `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, tons, is_critical)
+        `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, tons, is_critical, tolva_id)
          VALUES ${values}`,
         params
       );

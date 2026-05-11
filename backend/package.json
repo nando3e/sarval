@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "db:setup-telegram": "node scripts/db-setup-telegram.js"
+    "db:setup-telegram": "node scripts/db-setup-telegram.js",
+    "db:migrate-tolvas": "node scripts/db-migrate-tolvas.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

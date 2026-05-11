@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { usePlan } from '../context/PlanContext';
+import { useTolvas } from '../context/TolvaContext';
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer,
@@ -21,38 +22,22 @@ function CustomTooltip({ active, payload }) {
   );
 }
 
-function DayBand({ series, capacity }) {
-  if (!series?.length) return null;
-  const days = [...new Set(series.map((s) => s.day))];
-  return days.map((day, i) => {
-    const first = series.find((s) => s.day === day);
-    const last = [...series].reverse().find((s) => s.day === day);
-    if (!first || !last) return null;
-    return (
-      <ReferenceLine
-        key={day}
-        x={first.step_index}
-        stroke="var(--border)"
-        strokeDasharray="4 4"
-        label={{ value: day, position: 'insideTopLeft', fontSize: 10, fill: 'var(--text-muted)' }}
-      />
-    );
-  });
-}
-
 export default function Dashboard() {
   const { planId, weeks } = usePlan();
+  const { tolvas } = useTolvas();
   const [data, setData] = useState(null);
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dayFilter, setDayFilter] = useState('all');
+  const [selectedTolva, setSelectedTolva] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
+    const tolvaParam = selectedTolva ? `&tolva_id=${selectedTolva}` : '';
     Promise.all([
-      api('/api/dashboard'),
-      api('/api/dashboard/silo-chart').catch(() => ({ series: [], week: null, parameters: {} })),
+      api(`/api/dashboard${selectedTolva ? `?tolva_id=${selectedTolva}` : ''}`),
+      api(`/api/dashboard/silo-chart${selectedTolva ? `?tolva_id=${selectedTolva}` : ''}`).catch(() => ({ series: [], week: null, tolva: null })),
     ])
       .then(([dash, chart]) => {
         setData(dash);
@@ -60,7 +45,7 @@ export default function Dashboard() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedTolva]);
 
   useEffect(() => { load(); }, [load, planId]);
 
@@ -68,9 +53,10 @@ export default function Dashboard() {
   if (error) return <p className={styles.error}>{error}</p>;
   if (!data) return null;
 
-  const { parameters = {}, horas_paradas, stock_minimo, total_viajes, viajes_con_retraso, week } = data;
-  const { series = [], parameters: chartParams = {} } = chartData || {};
-  const capacity = chartParams.Capacidad_silo_tn || parameters.Capacidad_silo_tn || 40;
+  const { tolvas: tolvaStats = [], horas_paradas, stock_minimo, total_viajes, viajes_con_retraso, week } = data;
+  const { series = [], tolva: chartTolva } = chartData || {};
+  const capacity = chartTolva?.capacidad_tn || 40;
+
   const selectedWeek = planId == null
     ? (weeks.vigente || week)
     : (planId === weeks.proxima?.id
@@ -81,24 +67,15 @@ export default function Dashboard() {
     : (planId === weeks.proxima?.id ? 'Próxima semana' : 'Semana histórica');
 
   const filteredSeries = dayFilter === 'all' ? series : series.filter((s) => s.day === dayFilter);
-
   const activeDays = [...new Set(series.map((s) => s.day))].filter((d) => DAY_TICKS.includes(d));
-
   const noData = series.length === 0;
 
-  /** Dominio Y: capacidad con margen del 10% */
   const yDomainMaxFn = (dataMax) => Math.ceil(Math.max(dataMax, capacity) * 1.1);
-
-  /** Eje X: dominio con margen para que la primera y última barra no queden pegadas al eje */
   const xDomain =
     filteredSeries.length > 0
-      ? [
-          filteredSeries[0].step_index - 0.5,
-          filteredSeries[filteredSeries.length - 1].step_index + 0.5,
-        ]
+      ? [filteredSeries[0].step_index - 0.5, filteredSeries[filteredSeries.length - 1].step_index + 0.5]
       : ['dataMin', 'dataMax'];
 
-  /** Eje X: número fijo de marcas, periodicidad uniforme */
   const xTickCount = 8;
   const xTicks =
     filteredSeries.length > 0
@@ -112,27 +89,24 @@ export default function Dashboard() {
     <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1 className={styles.h1}>Dashboard</h1>
-        {selectedWeek && (
-          <span className={styles.weekChip}>
-            {selectedWeek.week_label}
-          </span>
-        )}
+        {selectedWeek && <span className={styles.weekChip}>{selectedWeek.week_label}</span>}
         <span className={styles.scopeChip}>{weekScopeLabel}</span>
+        {tolvas.length > 1 && (
+          <select
+            value={selectedTolva}
+            onChange={(e) => setSelectedTolva(e.target.value)}
+            style={{ padding: '0.3rem 0.5rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.85rem' }}
+          >
+            <option value="">Todas las tolvas</option>
+            {tolvas.map((t) => (
+              <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+            ))}
+          </select>
+        )}
       </div>
 
+      {/* KPIs globales */}
       <div className={styles.cards}>
-        <div className={styles.card}>
-          <span className={styles.cardLabel}>Capacidad silo (tn)</span>
-          <span className={styles.cardValue}>{parameters.Capacidad_silo_tn ?? '—'}</span>
-        </div>
-        <div className={styles.card}>
-          <span className={styles.cardLabel}>Nivel inicial (tn)</span>
-          <span className={styles.cardValue}>{parameters.Nivel_inicial_tn ?? '—'}</span>
-        </div>
-        <div className={styles.card}>
-          <span className={styles.cardLabel}>Consumo (tn/h)</span>
-          <span className={styles.cardValue}>{parameters.Consumo_tn_h ?? '—'}</span>
-        </div>
         <div className={`${styles.card} ${horas_paradas > 0 ? styles.cardDanger : ''}`}>
           <span className={styles.cardLabel}>Horas paradas</span>
           <span className={styles.cardValue}>{horas_paradas != null ? horas_paradas.toFixed(1) : '—'}</span>
@@ -141,46 +115,54 @@ export default function Dashboard() {
           <span className={styles.cardLabel}>Stock mínimo (tn)</span>
           <span className={styles.cardValue}>{stock_minimo != null ? Number(stock_minimo).toFixed(1) : '—'}</span>
         </div>
-        {total_viajes != null && (
-          <div className={styles.card}>
-            <span className={styles.cardLabel}>Viajes planif.</span>
-            <span className={styles.cardValue}>{total_viajes}</span>
-          </div>
-        )}
-        {viajes_con_retraso != null && (
-          <div className={`${styles.card} ${viajes_con_retraso > 0 ? styles.cardWarn : ''}`}>
-            <span className={styles.cardLabel}>Viajes con retraso</span>
-            <span className={styles.cardValue}>{viajes_con_retraso}</span>
-          </div>
-        )}
+        <div className={styles.card}>
+          <span className={styles.cardLabel}>Viajes planif.</span>
+          <span className={styles.cardValue}>{total_viajes ?? '—'}</span>
+        </div>
+        <div className={`${styles.card} ${viajes_con_retraso > 0 ? styles.cardWarn : ''}`}>
+          <span className={styles.cardLabel}>Viajes con retraso</span>
+          <span className={styles.cardValue}>{viajes_con_retraso ?? '—'}</span>
+        </div>
       </div>
 
+      {/* KPIs por tolva */}
+      {tolvaStats.length > 0 && !selectedTolva && (
+        <>
+          <h2 className={styles.h2}>Por tolva</h2>
+          <div className={styles.cards}>
+            {tolvaStats.map((ts) => (
+              <div key={ts.tolva_id} className={styles.card} style={{ cursor: 'pointer' }} onClick={() => setSelectedTolva(String(ts.tolva_id))}>
+                <span className={styles.cardLabel}>{ts.tolva_nombre || `Tolva ${ts.tolva_numero}`}</span>
+                <span className={styles.cardValue}>{ts.total_viajes} viajes</span>
+                <span className={styles.cardLabel} style={{ fontSize: '0.75rem' }}>
+                  Cap: {ts.capacidad_tn}tn · Paradas: {ts.horas_paradas.toFixed(1)}h · Stock mín: {ts.stock_minimo != null ? ts.stock_minimo.toFixed(1) : '—'}tn
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Gráfico */}
       <div className={styles.chartWrap}>
         <div className={styles.chartHeader}>
-          <h2 className={styles.h2}>Nivel del silo</h2>
+          <h2 className={styles.h2}>
+            Nivel {chartTolva ? `${chartTolva.nombre || `Tolva ${chartTolva.numero}`}` : 'de tolva'}
+          </h2>
           <div className={styles.dayFilters}>
-            <button
-              type="button"
-              className={dayFilter === 'all' ? styles.dayBtnActive : styles.dayBtn}
-              onClick={() => setDayFilter('all')}
-            >Toda la semana</button>
+            <button type="button" className={dayFilter === 'all' ? styles.dayBtnActive : styles.dayBtn} onClick={() => setDayFilter('all')}>Toda la semana</button>
             {activeDays.map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={dayFilter === d ? styles.dayBtnActive : styles.dayBtn}
-                onClick={() => setDayFilter(d)}
-              >{d}</button>
+              <button key={d} type="button" className={dayFilter === d ? styles.dayBtnActive : styles.dayBtn} onClick={() => setDayFilter(d)}>{d}</button>
             ))}
           </div>
         </div>
 
         {noData ? (
-          <p className={styles.muted}>Ejecuta un recálculo en Secuenciación para ver el gráfico del silo.</p>
+          <p className={styles.muted}>Ejecuta un recálculo en Secuenciación para ver el gráfico.</p>
         ) : (
           <>
             <div className={styles.legend}>
-              <span className={styles.legendItem}><span className={styles.dot} style={{ background: 'var(--accent)' }} />Nivel silo</span>
+              <span className={styles.legendItem}><span className={styles.dot} style={{ background: 'var(--accent)' }} />Nivel tolva</span>
               <span className={styles.legendItem}><span className={styles.dotLine} style={{ background: 'var(--text-muted)', opacity: 0.5 }} />Capacidad</span>
             </div>
             <ResponsiveContainer width="100%" height={380}>
@@ -202,42 +184,17 @@ export default function Dashboard() {
                   textAnchor="end"
                   height={50}
                 />
-                <YAxis
-                  domain={[0, yDomainMaxFn]}
-                  allowDataOverflow={false}
-                  tick={{ fontSize: 10 }}
-                  tickFormatter={(v) => `${v}tn`}
-                  width={48}
-                />
+                <YAxis domain={[0, yDomainMaxFn]} allowDataOverflow={false} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}tn`} width={48} />
                 <Tooltip content={<CustomTooltip />} />
-
-                {/* Línea de capacidad máxima */}
                 <ReferenceLine y={capacity} stroke="#94a3b8" strokeDasharray="6 3" strokeWidth={1} />
-
-                {/* Marcas de cambio de día */}
                 {activeDays.map((day) => {
                   const first = filteredSeries.find((s) => s.day === day);
                   return first ? (
-                    <ReferenceLine
-                      key={day}
-                      x={first.step_index}
-                      stroke="var(--border)"
-                      strokeDasharray="4 4"
-                      label={{ value: day, position: 'insideTopLeft', fontSize: 10, fill: 'var(--text-muted)', dy: -4 }}
-                    />
+                    <ReferenceLine key={day} x={first.step_index} stroke="var(--border)" strokeDasharray="4 4"
+                      label={{ value: day, position: 'insideTopLeft', fontSize: 10, fill: 'var(--text-muted)', dy: -4 }} />
                   ) : null;
                 })}
-
-                {/* Línea del nivel del silo (un punto por paso de media hora) */}
-                <Line
-                  type="linear"
-                  dataKey="silo_level"
-                  stroke="var(--accent)"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                  isAnimationActive={false}
-                />
+                <Line type="linear" dataKey="silo_level" stroke="var(--accent)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </>

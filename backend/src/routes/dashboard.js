@@ -43,35 +43,63 @@ function formatDateWithDayName(dateStr) {
 // GET /api/dashboard
 router.get('/', async (req, res) => {
   try {
-    const [paramsRows, planId] = await Promise.all([
-      pool.query('SELECT key, value FROM parameters'),
-      resolvePlanId(req),
-    ]);
-    const parameters = Object.fromEntries(paramsRows.rows.map((r) => [r.key, Number(r.value)]));
-    const paso = parameters.Paso_minutos || 30;
-    const stepHours = paso / 60;
+    const planId = await resolvePlanId(req);
+    const tolvaId = req.query.tolva_id ? parseInt(req.query.tolva_id, 10) : null;
+
+    const tolvasRows = await pool.query(
+      'SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos FROM tolvas WHERE activa = true ORDER BY numero'
+    );
+    const tolvas = tolvasRows.rows;
 
     let horasParadas = 0;
     let stockMinimo = null;
     let totalViajes = 0;
     let viajesConRetraso = 0;
     let weekMeta = null;
+    const tolvaStats = [];
 
     if (planId) {
+      const simFilter = tolvaId ? ' AND tolva_id = $2' : '';
+      const seqFilter = tolvaId ? ' AND tolva_id = $2' : '';
+      const filterParams = tolvaId ? [planId, tolvaId] : [planId];
+
       const [sim, seq, plan] = await Promise.all([
-        pool.query('SELECT silo_level, is_stoppage FROM silo_simulation WHERE plan_id = $1 ORDER BY step_index', [planId]),
-        pool.query('SELECT delay_capacity_hours FROM sequence_results WHERE plan_id = $1', [planId]),
+        pool.query(`SELECT silo_level, is_stoppage, tolva_id FROM silo_simulation WHERE plan_id = $1${simFilter} ORDER BY step_index`, filterParams),
+        pool.query(`SELECT delay_capacity_hours, tolva_id FROM sequence_results WHERE plan_id = $1${seqFilter}`, filterParams),
         pool.query('SELECT week_start FROM weekly_plans WHERE id = $1', [planId]),
       ]);
-      const levels = sim.rows.map((r) => Number(r.silo_level)).filter((n) => !Number.isNaN(n));
-      stockMinimo = levels.length ? Math.min(...levels) : null;
-      horasParadas = sim.rows.filter((r) => r.is_stoppage === true).length * stepHours;
-      totalViajes = seq.rows.length;
-      viajesConRetraso = seq.rows.filter((r) => Number(r.delay_capacity_hours) > 0).length;
+
+      for (const tolva of tolvas) {
+        if (tolvaId && tolva.id !== tolvaId) continue;
+        const paso = Number(tolva.paso_minutos) || 30;
+        const stepHours = paso / 60;
+        const tSim = sim.rows.filter((r) => r.tolva_id === tolva.id);
+        const tSeq = seq.rows.filter((r) => r.tolva_id === tolva.id);
+        const levels = tSim.map((r) => Number(r.silo_level)).filter((n) => !Number.isNaN(n));
+        const hp = tSim.filter((r) => r.is_stoppage === true).length * stepHours;
+        const sm = levels.length ? Math.min(...levels) : null;
+        const tv = tSeq.length;
+        const vr = tSeq.filter((r) => Number(r.delay_capacity_hours) > 0).length;
+        horasParadas += hp;
+        if (sm !== null && (stockMinimo === null || sm < stockMinimo)) stockMinimo = sm;
+        totalViajes += tv;
+        viajesConRetraso += vr;
+        tolvaStats.push({
+          tolva_id: tolva.id,
+          tolva_numero: tolva.numero,
+          tolva_nombre: tolva.nombre,
+          capacidad_tn: Number(tolva.capacidad_tn),
+          consumo_tn_h: Number(tolva.consumo_tn_h),
+          nivel_inicial_tn: Number(tolva.nivel_inicial_tn),
+          horas_paradas: hp,
+          stock_minimo: sm,
+          total_viajes: tv,
+          viajes_con_retraso: vr,
+        });
+      }
 
       if (plan.rows[0]) {
         const rawStart = toLocalDateOnly(plan.rows[0].week_start);
-        // Siempre mostrar semana Lunes–Domingo: normalizar al lunes de esa semana
         const weekStart = getMondayOfWeek(rawStart);
         const startDate = new Date(weekStart + 'T00:00:00Z');
         const endDate = new Date(startDate);
@@ -89,7 +117,7 @@ router.get('/', async (req, res) => {
     }
 
     res.json({
-      parameters,
+      tolvas: tolvaStats,
       horas_paradas: horasParadas,
       stock_minimo: stockMinimo,
       total_viajes: totalViajes,
@@ -103,23 +131,33 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/dashboard/silo-chart — serie temporal enriquecida para el gráfico del silo
+// GET /api/dashboard/silo-chart — serie temporal enriquecida para el gráfico de la tolva
 router.get('/silo-chart', async (req, res) => {
   try {
     const planId = await resolvePlanId(req);
-    if (!planId) return res.json({ series: [], week: null, parameters: {} });
+    if (!planId) return res.json({ series: [], week: null, tolva: null });
 
-    const [paramsRows, simRows, planRows] = await Promise.all([
-      pool.query('SELECT key, value FROM parameters'),
+    const tolvaId = req.query.tolva_id ? parseInt(req.query.tolva_id, 10) : null;
+
+    // Si no se especifica tolva, usar la primera activa
+    let tolva = null;
+    if (tolvaId) {
+      const tr = await pool.query('SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos FROM tolvas WHERE id = $1', [tolvaId]);
+      tolva = tr.rows[0] || null;
+    }
+    if (!tolva) {
+      const tr = await pool.query('SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos FROM tolvas WHERE activa = true ORDER BY numero LIMIT 1');
+      tolva = tr.rows[0] || null;
+    }
+    if (!tolva) return res.json({ series: [], week: null, tolva: null });
+
+    const [simRows, planRows] = await Promise.all([
       pool.query(
-        'SELECT step_index, day, time, entries_tons, consumption_tons, silo_level, is_stoppage FROM silo_simulation WHERE plan_id = $1 ORDER BY step_index',
-        [planId]
+        'SELECT step_index, day, time, entries_tons, consumption_tons, silo_level, is_stoppage FROM silo_simulation WHERE plan_id = $1 AND tolva_id = $2 ORDER BY step_index',
+        [planId, tolva.id]
       ),
       pool.query('SELECT week_start FROM weekly_plans WHERE id = $1', [planId]),
     ]);
-
-    const parameters = Object.fromEntries(paramsRows.rows.map((r) => [r.key, Number(r.value)]));
-    const paso = parameters.Paso_minutos || 30;
 
     let weekMeta = null;
     let weekStartDate = null;
@@ -143,7 +181,6 @@ router.get('/silo-chart', async (req, res) => {
     const series = simRows.rows.map((s) => {
       const dayIdx = DAY_ORDER.indexOf(s.day);
 
-      // timestamp absoluto si tenemos week_start
       let timestamp = null;
       if (weekStartDate) {
         const [hh, mm] = String(s.time).split(':').map(Number);
@@ -167,7 +204,16 @@ router.get('/silo-chart', async (req, res) => {
       };
     });
 
-    res.json({ series, week: weekMeta, parameters });
+    const tolvaInfo = {
+      id: tolva.id,
+      numero: tolva.numero,
+      nombre: tolva.nombre,
+      capacidad_tn: Number(tolva.capacidad_tn),
+      consumo_tn_h: Number(tolva.consumo_tn_h),
+      nivel_inicial_tn: Number(tolva.nivel_inicial_tn),
+    };
+
+    res.json({ series, week: weekMeta, tolva: tolvaInfo });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al obtener datos del gráfico' });

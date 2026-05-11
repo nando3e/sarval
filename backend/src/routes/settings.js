@@ -38,19 +38,22 @@ const EUROPE_TIMEZONES = [
 
 const API_ENDPOINTS = [
   { method: 'POST', path: '/api/auth/login', description: 'Login (obtener token)' },
-  { method: 'GET', path: '/api/parameters', description: 'Parámetros silo' },
-  { method: 'PUT', path: '/api/parameters', description: 'Actualizar parámetros' },
+  { method: 'GET', path: '/api/tolvas', description: 'Listar tolvas' },
+  { method: 'POST', path: '/api/tolvas', description: 'Crear tolva' },
+  { method: 'PUT', path: '/api/tolvas/:id', description: 'Actualizar tolva' },
   { method: 'GET', path: '/api/trips', description: 'Listar viajes' },
   { method: 'GET', path: '/api/trips?day=Lunes', description: 'Viajes por día' },
+  { method: 'GET', path: '/api/trips?tolva_id=1', description: 'Viajes por tolva' },
   { method: 'GET', path: '/api/trips/:id', description: 'Un viaje' },
   { method: 'POST', path: '/api/trips/extra', description: 'Añadir viaje extra' },
-  { method: 'PUT', path: '/api/trips/:id', description: 'Actualizar viaje' },
+  { method: 'PUT', path: '/api/trips/:id', description: 'Actualizar viaje (incl. tolva_id)' },
   { method: 'DELETE', path: '/api/trips/:id', description: 'Eliminar viaje' },
   { method: 'POST', path: '/api/planning/upload', description: 'Subir CSV/Excel' },
   { method: 'GET', path: '/api/planning/sequence', description: 'Secuenciación' },
-  { method: 'GET', path: '/api/planning/simulation', description: 'Simulación silo' },
-  { method: 'POST', path: '/api/planning/recalculate', description: 'Recalcular' },
+  { method: 'GET', path: '/api/planning/simulation', description: 'Simulación tolva' },
+  { method: 'POST', path: '/api/planning/recalculate', description: 'Recalcular (todas las tolvas)' },
   { method: 'GET', path: '/api/dashboard', description: 'Dashboard' },
+  { method: 'GET', path: '/api/dashboard/silo-chart', description: 'Gráfico tolva' },
 ];
 
 // GET /api/settings - zona horaria, api_base_url, endpoints, etc.

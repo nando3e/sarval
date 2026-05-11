@@ -65,6 +65,7 @@ export function parseFile(buffer, filename) {
     supplier: header.findIndex((h) => h.includes('proveedor') || h.includes('supplier')),
     tons: header.findIndex((h) => h.includes('tonelada') || h.includes('tons') || h.includes('tn')),
     critical: header.findIndex((h) => h.includes('critico') || h.includes('crítico') || h.includes('critical')),
+    tolva: header.findIndex((h) => h.includes('tolva') || h === 'hopper'),
   };
 
   if (colMap.day < 0 || colMap.time < 0 || colMap.supplier < 0 || colMap.tons < 0) {
@@ -92,7 +93,8 @@ export function parseFile(buffer, filename) {
     if (!supplier) { errors.push(`Fila ${rowNum}: proveedor vacío`); continue; }
     if (Number.isNaN(tons) || tons <= 0) { errors.push(`Fila ${rowNum}: toneladas inválidas "${rawTons}"`); continue; }
 
-    trips.push({ trip_number: tripNumber, day, scheduled_time: time, supplier, tons, is_critical: isCritical });
+    const tolva = colMap.tolva >= 0 ? row[colMap.tolva] : null;
+    trips.push({ trip_number: tripNumber, day, scheduled_time: time, supplier, tons, is_critical: isCritical, tolva });
   }
 
   return { trips, errors };

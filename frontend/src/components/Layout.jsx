@@ -10,7 +10,7 @@ const navItems = [
   { to: '/planificacion', label: 'Planificación' },
   { to: '/viajes-extras', label: 'Viajes extras' },
   { to: '/secuenciacion', label: 'Secuenciación' },
-  { to: '/parametros', label: 'Parámetros' },
+  { to: '/tolvas', label: 'Tolvas' },
   { to: '/proveedores', label: 'Proveedores' },
   { to: '/choferes', label: 'Choferes' },
   { to: '/configuracion', label: 'Configuración' },

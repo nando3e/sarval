@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { usePlan } from '../context/PlanContext';
+import { useTolvas } from '../context/TolvaContext';
 import styles from './Tables.module.css';
 
 const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 export default function ViajesExtras() {
   const { planId } = usePlan();
+  const { tolvas } = useTolvas();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ day: 'Lunes', scheduled_time: '08:00', supplier: '', tons: '', is_critical: false });
+  const [form, setForm] = useState({ day: 'Lunes', scheduled_time: '08:00', supplier: '', tons: '', is_critical: false, tolva_id: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => api('/api/trips').then(setTrips).catch((e) => setError(e.message));
@@ -18,6 +20,12 @@ export default function ViajesExtras() {
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [planId]);
+
+  useEffect(() => {
+    if (tolvas.length > 0 && !form.tolva_id) {
+      setForm((f) => ({ ...f, tolva_id: String(tolvas[0].id) }));
+    }
+  }, [tolvas]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,9 +39,10 @@ export default function ViajesExtras() {
           supplier: form.supplier.trim(),
           tons: Number(form.tons),
           is_critical: form.is_critical,
+          tolva_id: form.tolva_id ? Number(form.tolva_id) : undefined,
         }),
       });
-      setForm({ day: 'Lunes', scheduled_time: '08:00', supplier: '', tons: '', is_critical: false });
+      setForm((f) => ({ ...f, supplier: '', tons: '', is_critical: false }));
       load();
     } catch (err) {
       setError(err.message);
@@ -43,6 +52,7 @@ export default function ViajesExtras() {
   };
 
   const extras = trips.filter((t) => t.is_extra);
+  const showTolvaCol = tolvas.length > 1;
 
   if (loading) return <p className={styles.muted}>Cargando…</p>;
 
@@ -51,6 +61,18 @@ export default function ViajesExtras() {
       <h1 className={styles.h1}>Viajes extras</h1>
       {error && <p className={styles.error}>{error}</p>}
       <form onSubmit={handleSubmit} className={styles.form}>
+        {showTolvaCol && (
+          <select
+            value={form.tolva_id}
+            onChange={(e) => setForm((f) => ({ ...f, tolva_id: e.target.value }))}
+            className={styles.input}
+            style={{ minWidth: 130 }}
+          >
+            {tolvas.map((t) => (
+              <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+            ))}
+          </select>
+        )}
         <select
           value={form.day}
           onChange={(e) => setForm((f) => ({ ...f, day: e.target.value }))}
@@ -102,6 +124,7 @@ export default function ViajesExtras() {
             <thead>
               <tr>
                 <th>#</th>
+                {showTolvaCol && <th>Tolva</th>}
                 <th>Día</th>
                 <th>Hora</th>
                 <th>Proveedor</th>
@@ -113,6 +136,7 @@ export default function ViajesExtras() {
               {extras.map((t) => (
                 <tr key={t.id}>
                   <td>{t.trip_number}</td>
+                  {showTolvaCol && <td>{t.tolva_nombre || (t.tolva_numero ? `Tolva ${t.tolva_numero}` : '—')}</td>}
                   <td>{t.day}</td>
                   <td>{String(t.scheduled_time ?? '').slice(0, 5)}</td>
                   <td>{t.supplier}</td>

@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, appendPlanId } from '../api';
 import { usePlan } from '../context/PlanContext';
+import { useTolvas } from '../context/TolvaContext';
 import styles from './Tables.module.css';
 
 const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 export default function Planificacion() {
   const { planId } = usePlan();
+  const { tolvas } = useTolvas();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -14,16 +16,20 @@ export default function Planificacion() {
   const [uploadMsg, setUploadMsg] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
+  const [filterTolva, setFilterTolva] = useState('');
   const fileRef = useRef(null);
 
-  const load = () =>
-    api('/api/trips')
+  const load = () => {
+    const q = filterTolva ? `?tolva_id=${filterTolva}` : '';
+    return api(`/api/trips${q}`)
       .then(setTrips)
       .catch((e) => setError(e.message));
+  };
 
   useEffect(() => {
+    setLoading(true);
     load().finally(() => setLoading(false));
-  }, [planId]);
+  }, [planId, filterTolva]);
 
   const handleUpload = async (e) => {
     const file = e.target.files[0];
@@ -60,6 +66,7 @@ export default function Planificacion() {
       supplier: trip.supplier,
       tons: trip.tons,
       is_critical: trip.is_critical,
+      tolva_id: trip.tolva_id || '',
     });
   };
 
@@ -70,7 +77,10 @@ export default function Planificacion() {
 
   const saveEdit = async (id) => {
     try {
-      await api(`/api/trips/${id}`, { method: 'PUT', body: JSON.stringify(editData) });
+      const body = { ...editData };
+      if (body.tolva_id) body.tolva_id = Number(body.tolva_id);
+      else delete body.tolva_id;
+      await api(`/api/trips/${id}`, { method: 'PUT', body: JSON.stringify(body) });
       setEditingId(null);
       await load();
     } catch (err) {
@@ -98,10 +108,21 @@ export default function Planificacion() {
   if (loading) return <p className={styles.muted}>Cargando…</p>;
 
   const baseTrips = trips.filter((t) => !t.is_extra);
+  const showTolvaCol = tolvas.length > 1;
 
   return (
     <div className={styles.page}>
-      <h1 className={styles.h1}>Planificación</h1>
+      <div className={styles.header}>
+        <h1 className={styles.h1}>Planificación</h1>
+        {showTolvaCol && (
+          <select value={filterTolva} onChange={(e) => setFilterTolva(e.target.value)} className={styles.input} style={{ minWidth: 140 }}>
+            <option value="">Todas las tolvas</option>
+            {tolvas.map((t) => (
+              <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+            ))}
+          </select>
+        )}
+      </div>
 
       <div className={styles.uploadArea}>
         <label className={styles.uploadLabel}>
@@ -120,14 +141,19 @@ export default function Planificacion() {
 
       <div className={styles.csvExample}>
         <p className={styles.csvExampleTitle}>Formato del CSV / Excel</p>
-        <p className={styles.muted}>Primera fila: cabecera. Filas siguientes: un viaje por línea. Días: Lunes, Martes, Miércoles, Jueves, Viernes, Sábado. Hora: HH:MM. Crítico: Sí/Si o vacío.</p>
+        <p className={styles.muted}>Primera fila: cabecera. Filas siguientes: un viaje por línea. Días: Lunes…Sábado. Hora: HH:MM. Crítico: Sí/Si o vacío.{showTolvaCol ? ' Tolva: número o nombre de tolva (opcional).' : ''}</p>
         <pre className={styles.csvExampleBlock}>
-{`ID;Día;Hora;Proveedor;Toneladas;Crítico
+{showTolvaCol
+? `ID;Día;Hora;Proveedor;Toneladas;Crítico;Tolva
+1;Lunes;07:00;PROVEEDOR A;22,5;;1
+2;Lunes;09:30;PROVEEDOR B;18;Sí;2
+3;Martes;08:00;PROVEEDOR A;20;;1`
+: `ID;Día;Hora;Proveedor;Toneladas;Crítico
 1;Lunes;07:00;PROVEEDOR A;22,5;
 2;Lunes;09:30;PROVEEDOR B;18;Sí
 3;Martes;08:00;PROVEEDOR A;20;`}
         </pre>
-        <p className={styles.csvExampleNote}>En CSV puedes usar separador <code>;</code> o <code>,</code>. En Excel usa las mismas columnas (Día, Hora, Proveedor, Toneladas, Crítico).</p>
+        <p className={styles.csvExampleNote}>En CSV puedes usar separador <code>;</code> o <code>,</code>. En Excel usa las mismas columnas.</p>
       </div>
 
       {uploadMsg && <p style={{ color: 'var(--success)', marginBottom: '1rem' }}>{uploadMsg}</p>}
@@ -141,6 +167,7 @@ export default function Planificacion() {
             <thead>
               <tr>
                 <th>#</th>
+                {showTolvaCol && <th>Tolva</th>}
                 <th>Día</th>
                 <th>Hora</th>
                 <th>Proveedor</th>
@@ -154,6 +181,16 @@ export default function Planificacion() {
                 editingId === t.id ? (
                   <tr key={t.id}>
                     <td>{t.trip_number}</td>
+                    {showTolvaCol && (
+                      <td>
+                        <select value={editData.tolva_id} onChange={(e) => setEditData((d) => ({ ...d, tolva_id: e.target.value }))} className={styles.selectInline}>
+                          <option value="">—</option>
+                          {tolvas.map((tol) => (
+                            <option key={tol.id} value={tol.id}>{tol.nombre || `Tolva ${tol.numero}`}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
                     <td>
                       <select value={editData.day} onChange={(e) => setEditData((d) => ({ ...d, day: e.target.value }))} className={styles.selectInline}>
                         {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -171,6 +208,7 @@ export default function Planificacion() {
                 ) : (
                   <tr key={t.id}>
                     <td>{t.trip_number}</td>
+                    {showTolvaCol && <td>{t.tolva_nombre || (t.tolva_numero ? `Tolva ${t.tolva_numero}` : '—')}</td>}
                     <td>{t.day}</td>
                     <td>{String(t.scheduled_time ?? '').slice(0, 5)}</td>
                     <td>{t.supplier}</td>

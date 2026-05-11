@@ -1,7 +1,8 @@
 /**
- * Motor de simulación de descargas en silo.
- * Traducción directa de la lógica del script Excel (Secuenciación + Simulación Silo).
+ * Motor de simulación de descargas en tolva.
  * Semana operativa: Lunes 06:00 → Sábado 22:00, pasos de PASO minutos.
+ * Acepta parámetros de tolva (capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos)
+ * o el formato legacy (Capacidad_silo_tn, Consumo_tn_h, Nivel_inicial_tn, Paso_minutos).
  */
 
 const IDX_DAY = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -88,16 +89,17 @@ function buildTrucks(trips, STEPS_H, PASO) {
 }
 
 /**
- * Ejecuta el motor de simulación.
- * @param {Object} params - { Capacidad_silo_tn, Consumo_tn_h, Nivel_inicial_tn, Paso_minutos }
- * @param {Array} trips - Viajes de la BD (plan_id ya filtrado)
+ * Ejecuta el motor de simulación para una tolva.
+ * @param {Object} params - Objeto tolva con { capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos }
+ *                          También acepta formato legacy { Capacidad_silo_tn, Consumo_tn_h, Nivel_inicial_tn, Paso_minutos }
+ * @param {Array} trips - Viajes de la BD (ya filtrados por plan_id y tolva_id)
  * @returns { { sequence: Array, simulation: Array } }
  */
 export function run(params, trips) {
-  const CAP = toNumber(params.Capacidad_silo_tn) || 40;
-  const CONS_H = toNumber(params.Consumo_tn_h) || 12;
-  const NIVEL0 = toNumber(params.Nivel_inicial_tn) || 20;
-  const PASO = toNumber(params.Paso_minutos) || 30;
+  const CAP = toNumber(params.capacidad_tn ?? params.Capacidad_silo_tn) || 40;
+  const CONS_H = toNumber(params.consumo_tn_h ?? params.Consumo_tn_h) || 12;
+  const NIVEL0 = toNumber(params.nivel_inicial_tn ?? params.Nivel_inicial_tn) || 20;
+  const PASO = toNumber(params.paso_minutos ?? params.Paso_minutos) || 30;
   const STEPS_H = 60 / PASO;
   const CONS_STEP = CONS_H / STEPS_H;
 

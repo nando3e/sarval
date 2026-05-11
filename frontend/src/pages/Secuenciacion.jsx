@@ -1,25 +1,31 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { usePlan } from '../context/PlanContext';
+import { useTolvas } from '../context/TolvaContext';
 import styles from './Tables.module.css';
 
 const toHHmm = (v) => String(v ?? '').slice(0, 5);
 
 export default function Secuenciacion() {
   const { planId } = usePlan();
+  const { tolvas } = useTolvas();
   const [sequence, setSequence] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [recalculating, setRecalculating] = useState(false);
+  const [filterTolva, setFilterTolva] = useState('');
 
-  const load = () =>
-    api('/api/planning/sequence')
+  const load = () => {
+    const q = filterTolva ? `?tolva_id=${filterTolva}` : '';
+    return api(`/api/planning/sequence${q}`)
       .then(setSequence)
       .catch((e) => setError(e.message));
+  };
 
   useEffect(() => {
+    setLoading(true);
     load().finally(() => setLoading(false));
-  }, [planId]);
+  }, [planId, filterTolva]);
 
   const handleRecalculate = async () => {
     setRecalculating(true);
@@ -37,11 +43,20 @@ export default function Secuenciacion() {
   if (loading) return <p className={styles.muted}>Cargando…</p>;
 
   const dayChanged = (row) => row.day && row.dia_final && row.day !== row.dia_final;
+  const showTolvaCol = tolvas.length > 1;
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.h1}>Secuenciación</h1>
+        {showTolvaCol && (
+          <select value={filterTolva} onChange={(e) => setFilterTolva(e.target.value)} className={styles.input} style={{ minWidth: 140 }}>
+            <option value="">Todas las tolvas</option>
+            {tolvas.map((t) => (
+              <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+            ))}
+          </select>
+        )}
         <button type="button" onClick={handleRecalculate} disabled={recalculating} className={styles.button}>
           {recalculating ? 'Recalculando…' : 'Actualizar'}
         </button>
@@ -55,6 +70,7 @@ export default function Secuenciacion() {
             <thead>
               <tr>
                 <th>ID</th>
+                {showTolvaCol && <th>Tolva</th>}
                 <th>Día</th>
                 <th>Hora prev.</th>
                 <th>Proveedor</th>
@@ -77,6 +93,7 @@ export default function Secuenciacion() {
                 return (
                   <tr key={row.id} className={retCap > 0 ? styles.rowDelay : dayChanged(row) ? styles.rowDayChange : ''}>
                     <td>{row.trip_number}</td>
+                    {showTolvaCol && <td>{row.tolva_nombre || `Tolva ${row.tolva_numero || '?'}`}</td>}
                     <td>{row.day}</td>
                     <td>{toHHmm(row.hora_prevista)}</td>
                     <td>{row.supplier}</td>
