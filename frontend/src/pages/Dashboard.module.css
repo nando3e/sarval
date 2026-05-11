@@ -90,6 +90,12 @@
   padding: 1.5rem;
 }
 
+.chartPanelStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .chartHeader {
   display: flex;
   align-items: flex-start;

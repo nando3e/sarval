@@ -142,11 +142,11 @@ router.get('/silo-chart', async (req, res) => {
     // Si no se especifica tolva, usar la primera activa
     let tolva = null;
     if (tolvaId) {
-      const tr = await pool.query('SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos FROM tolvas WHERE id = $1', [tolvaId]);
+      const tr = await pool.query('SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn FROM tolvas WHERE id = $1', [tolvaId]);
       tolva = tr.rows[0] || null;
     }
     if (!tolva) {
-      const tr = await pool.query('SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos FROM tolvas WHERE activa = true ORDER BY numero LIMIT 1');
+      const tr = await pool.query('SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn FROM tolvas WHERE activa = true ORDER BY numero LIMIT 1');
       tolva = tr.rows[0] || null;
     }
     if (!tolva) return res.json({ series: [], week: null, tolva: null });
@@ -190,6 +190,8 @@ router.get('/silo-chart', async (req, res) => {
         timestamp = base.getTime();
       }
 
+      const entriesTons = Number(s.entries_tons);
+      const boxEntryTons = Number(s.box_entry_tons) || 0;
       return {
         step_index: Number(s.step_index),
         day: s.day,
@@ -197,8 +199,9 @@ router.get('/silo-chart', async (req, res) => {
         label: `${s.day} ${String(s.time).slice(0, 5)}`,
         day_order: dayIdx >= 0 ? dayIdx : 6,
         timestamp,
-        entries_tons: Number(s.entries_tons),
-        box_entry_tons: Number(s.box_entry_tons) || 0,
+        entries_tons: entriesTons,
+        box_entry_tons: boxEntryTons,
+        truck_entry_tons: Math.max(0, entriesTons - boxEntryTons),
         consumption_tons: Number(s.consumption_tons),
         silo_level: Number(s.silo_level),
         is_stoppage: Boolean(s.is_stoppage),
@@ -212,6 +215,7 @@ router.get('/silo-chart', async (req, res) => {
       capacidad_tn: Number(tolva.capacidad_tn),
       consumo_tn_h: Number(tolva.consumo_tn_h),
       nivel_inicial_tn: Number(tolva.nivel_inicial_tn),
+      nivel_minimo_alerta_tn: tolva.nivel_minimo_alerta_tn != null ? Number(tolva.nivel_minimo_alerta_tn) : null,
     };
 
     res.json({ series, week: weekMeta, tolva: tolvaInfo });
