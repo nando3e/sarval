@@ -5,14 +5,15 @@ import { notifyWebhooks } from '../services/webhookEmitter.js';
 
 const router = Router();
 
-const FIELDS = 'id, tolva_id, plan_id, tipo, descripcion, dia, hora_inicio, hora_fin, created_at';
+const FIELDS = 's.id, s.tolva_id, s.plan_id, s.tipo, s.descripcion, s.dia, s.hora_inicio, s.hora_fin, s.created_at';
+const FIELDS_PLAIN = 'id, tolva_id, plan_id, tipo, descripcion, dia, hora_inicio, hora_fin, created_at';
 
 router.get('/', async (req, res) => {
   try {
     const planId = await resolvePlanId(req);
     if (!planId) return res.json([]);
     const tolvaId = req.query.tolva_id ? parseInt(req.query.tolva_id, 10) : null;
-    let q = `SELECT s.${FIELDS}, tol.numero AS tolva_numero, tol.nombre AS tolva_nombre
+    let q = `SELECT ${FIELDS}, tol.numero AS tolva_numero, tol.nombre AS tolva_nombre
              FROM stoppages s LEFT JOIN tolvas tol ON tol.id = s.tolva_id
              WHERE s.plan_id = $1`;
     const params = [planId];
@@ -36,7 +37,7 @@ router.post('/', async (req, res) => {
     }
     const r = await pool.query(
       `INSERT INTO stoppages (tolva_id, plan_id, tipo, descripcion, dia, hora_inicio, hora_fin)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${FIELDS}`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${FIELDS_PLAIN}`,
       [parseInt(tolva_id, 10), planId, tipo || 'mantenimiento', descripcion || '', dia, hora_inicio, hora_fin]
     );
     const stoppage = r.rows[0];
@@ -62,7 +63,7 @@ router.put('/:id', async (req, res) => {
     if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
     values.push(req.params.id);
     const r = await pool.query(
-      `UPDATE stoppages SET ${updates.join(', ')} WHERE id = $${i} RETURNING ${FIELDS}`,
+      `UPDATE stoppages SET ${updates.join(', ')} WHERE id = $${i} RETURNING ${FIELDS_PLAIN}`,
       values
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Parada no encontrada' });

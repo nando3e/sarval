@@ -4,14 +4,15 @@ import { resolvePlanId } from '../db/helpers.js';
 
 const router = Router();
 
-const FIELDS = 'id, tolva_id, plan_id, num_boxes, total_tons, periodo_horas, dia, hora_inicio, descripcion, created_at';
+const FIELDS = 'b.id, b.tolva_id, b.plan_id, b.num_boxes, b.total_tons, b.periodo_horas, b.dia, b.hora_inicio, b.descripcion, b.created_at';
+const FIELDS_PLAIN = 'id, tolva_id, plan_id, num_boxes, total_tons, periodo_horas, dia, hora_inicio, descripcion, created_at';
 
 router.get('/', async (req, res) => {
   try {
     const planId = await resolvePlanId(req);
     if (!planId) return res.json([]);
     const tolvaId = req.query.tolva_id ? parseInt(req.query.tolva_id, 10) : null;
-    let q = `SELECT b.${FIELDS}, tol.numero AS tolva_numero, tol.nombre AS tolva_nombre
+    let q = `SELECT ${FIELDS}, tol.numero AS tolva_numero, tol.nombre AS tolva_nombre
              FROM box_entries b LEFT JOIN tolvas tol ON tol.id = b.tolva_id
              WHERE b.plan_id = $1`;
     const params = [planId];
@@ -35,7 +36,7 @@ router.post('/', async (req, res) => {
     }
     const r = await pool.query(
       `INSERT INTO box_entries (tolva_id, plan_id, num_boxes, total_tons, periodo_horas, dia, hora_inicio, descripcion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${FIELDS}`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${FIELDS_PLAIN}`,
       [
         parseInt(tolva_id, 10),
         planId,
@@ -69,7 +70,7 @@ router.put('/:id', async (req, res) => {
     if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
     values.push(req.params.id);
     const r = await pool.query(
-      `UPDATE box_entries SET ${updates.join(', ')} WHERE id = $${i} RETURNING ${FIELDS}`,
+      `UPDATE box_entries SET ${updates.join(', ')} WHERE id = $${i} RETURNING ${FIELDS_PLAIN}`,
       values
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Entrada no encontrada' });
