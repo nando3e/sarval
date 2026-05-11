@@ -194,11 +194,10 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
   let pos = 0;
 
   for (let t = START(); t <= END(); t++) {
-    // Entradas graduales de boxes
+    // Entradas graduales de boxes (afectan nivel pero NO se mezclan en entries)
     const boxTons = boxMap[t] || 0;
     if (boxTons > 0) {
       level = Math.min(CAP, level + boxTons);
-      entries[t] = (entries[t] || 0) + boxTons;
     }
 
     while (pos < trucks.length && trucks[pos].arr === t) {
@@ -290,10 +289,11 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
   for (let t = START(); t <= END(); t++) {
     const d = Math.floor(t / (24 * STEPS_H));
     const hTxt = stepToHHMM(t, STEPS_H, PASO);
-    const ent = entries[t] || 0;
+    const truckEnt = entries[t] || 0;
     const boxEnt = boxMap[t] || 0;
+    const totalEnt = truckEnt + boxEnt;
     const isStopped = stoppedSteps.has(t);
-    lvl2 = Math.min(CAP, lvl2 + ent);
+    lvl2 = Math.min(CAP, lvl2 + totalEnt);
     const levelAfterEntry = lvl2;
     const cons = isStopped ? 0 : Math.min(CONS_STEP, lvl2);
     lvl2 -= cons;
@@ -301,7 +301,7 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
       step_index: t,
       day: IDX_DAY[d],
       time: hTxt,
-      entries_tons: ent,
+      entries_tons: totalEnt,
       box_entry_tons: boxEnt,
       consumption_tons: cons,
       silo_level: levelAfterEntry,
