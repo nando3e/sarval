@@ -1,8 +1,12 @@
 /**
  * Motor de simulación de descargas en tolva.
  * Semana operativa: Lunes 06:00 → Sábado 22:00, pasos de PASO minutos.
- * Acepta parámetros de tolva (capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos)
- * o el formato legacy (Capacidad_silo_tn, Consumo_tn_h, Nivel_inicial_tn, Paso_minutos).
+ *
+ * FASE B: Anticipación de críticos.
+ * Antes de descargar un no-crítico, el motor comprueba si hay un viaje
+ * crítico próximo que no cabría si se descarga el no-crítico ahora.
+ * Si es así, retiene el no-crítico hasta que el crítico haya descargado
+ * o el consumo haya creado espacio suficiente.
  */
 
 const IDX_DAY = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -59,11 +63,6 @@ function stepToHHMM(s, STEPS_H, PASO) {
   return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
 }
 
-/**
- * Construye la lista de camiones (trucks) a partir de los viajes de la BD.
- * Cada trip: { id, trip_number, day, scheduled_time, supplier, tons, is_critical, is_extra }
- * scheduled_time puede venir como string "08:00" o como time de PostgreSQL.
- */
 function buildTrucks(trips, STEPS_H, PASO) {
   const trucks = [];
   for (const t of trips) {
@@ -82,6 +81,7 @@ function buildTrucks(trips, STEPS_H, PASO) {
       horaPrev: tm.hhmm,
       prov: String(t.supplier ?? ''),
       extra: !!t.is_extra,
+      retained: false,
     });
   }
   trucks.sort((a, b) => a.arr - b.arr || a.id - b.id);
@@ -89,13 +89,89 @@ function buildTrucks(trips, STEPS_H, PASO) {
 }
 
 /**
- * Ejecuta el motor de simulación para una tolva.
- * @param {Object} params - Objeto tolva con { capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos }
- *                          También acepta formato legacy { Capacidad_silo_tn, Consumo_tn_h, Nivel_inicial_tn, Paso_minutos }
- * @param {Array} trips - Viajes de la BD (ya filtrados por plan_id y tolva_id)
- * @returns { { sequence: Array, simulation: Array } }
+ * Busca el próximo camión crítico que aún no ha llegado.
+ * Recorre trucks desde fromPos en adelante.
  */
-export function run(params, trips) {
+function findNextCriticalArrival(trucks, fromPos) {
+  for (let i = fromPos; i < trucks.length; i++) {
+    if (trucks[i].crit) return trucks[i];
+  }
+  return null;
+}
+
+/**
+ * Comprueba si descargar `extraTons` ahora haría que el próximo crítico
+ * no quepa cuando llegue. Solo retiene si SIN la descarga el crítico SÍ cabría.
+ *
+ * @returns {boolean} true = retener el no-crítico
+ */
+function wouldBlockCritical(currentLevel, extraTons, currentStep, nextCrit, CAP, CONS_STEP) {
+  if (!nextCrit) return false;
+  const stepsUntil = nextCrit.arr - currentStep;
+  if (stepsUntil <= 0) return false;
+
+  const consumeUntil = stepsUntil * CONS_STEP;
+
+  const levelWithout = Math.max(0, currentLevel - consumeUntil);
+  const spaceWithout = CAP - levelWithout;
+
+  const levelWith = Math.max(0, currentLevel + extraTons - consumeUntil);
+  const spaceWith = CAP - levelWith;
+
+  return spaceWith < nextCrit.tn && spaceWithout >= nextCrit.tn;
+}
+
+/**
+ * Convierte un array de paradas (stoppages) en un Set de step-indices
+ * donde la productividad es 0.
+ */
+function buildStoppageSteps(stoppages, STEPS_H, PASO) {
+  const stopped = new Set();
+  for (const s of stoppages) {
+    const dy = coerceDay(s.dia);
+    const from = coerceTimeToStep(s.hora_inicio, STEPS_H, PASO);
+    const to = coerceTimeToStep(s.hora_fin, STEPS_H, PASO);
+    const base = dy.dIdx * 24 * STEPS_H;
+    for (let st = base + from.step; st < base + to.step; st++) {
+      stopped.add(st);
+    }
+  }
+  return stopped;
+}
+
+/**
+ * Convierte las entradas de boxes en un mapa stepIndex → tons que se
+ * añaden gradualmente. Las toneladas totales se reparten linealmente
+ * entre hora_inicio y hora_inicio + periodo_horas.
+ */
+function buildBoxEntryMap(boxEntries, STEPS_H, PASO) {
+  const map = {};
+  for (const b of boxEntries) {
+    const tons = toNumber(b.total_tons);
+    const periodo = toNumber(b.periodo_horas) || 24;
+    if (tons <= 0) continue;
+    const dy = coerceDay(b.dia);
+    const from = coerceTimeToStep(b.hora_inicio || '06:00', STEPS_H, PASO);
+    const base = dy.dIdx * 24 * STEPS_H + from.step;
+    const totalSteps = Math.max(1, Math.round(periodo * STEPS_H));
+    const tonsPerStep = tons / totalSteps;
+    for (let i = 0; i < totalSteps; i++) {
+      const idx = base + i;
+      map[idx] = (map[idx] || 0) + tonsPerStep;
+    }
+  }
+  return map;
+}
+
+/**
+ * Ejecuta el motor de simulación para una tolva.
+ * @param {Object} params - { capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos }
+ * @param {Array} trips - Viajes filtrados por plan_id y tolva_id
+ * @param {Array} [stoppages=[]] - Paradas programadas para esta tolva
+ * @param {Array} [boxEntries=[]] - Entradas graduales de boxes
+ * @returns {{ sequence: Array, simulation: Array }}
+ */
+export function run(params, trips, stoppages = [], boxEntries = []) {
   const CAP = toNumber(params.capacidad_tn ?? params.Capacidad_silo_tn) || 40;
   const CONS_H = toNumber(params.consumo_tn_h ?? params.Consumo_tn_h) || 12;
   const NIVEL0 = toNumber(params.nivel_inicial_tn ?? params.Nivel_inicial_tn) || 20;
@@ -107,6 +183,8 @@ export function run(params, trips) {
   const END = () => 5 * 24 * STEPS_H + 22 * STEPS_H;
 
   const trucks = buildTrucks(trips, STEPS_H, PASO);
+  const stoppedSteps = buildStoppageSteps(stoppages, STEPS_H, PASO);
+  const boxMap = buildBoxEntryMap(boxEntries, STEPS_H, PASO);
 
   let level = NIVEL0;
   const qC = [];
@@ -116,12 +194,20 @@ export function run(params, trips) {
   let pos = 0;
 
   for (let t = START(); t <= END(); t++) {
+    // Entradas graduales de boxes
+    const boxTons = boxMap[t] || 0;
+    if (boxTons > 0) {
+      level = Math.min(CAP, level + boxTons);
+      entries[t] = (entries[t] || 0) + boxTons;
+    }
+
     while (pos < trucks.length && trucks[pos].arr === t) {
       (trucks[pos].crit ? qC : qN).push(trucks[pos]);
       pos++;
     }
     let space = CAP - level;
 
+    // 1) Descargar críticos que caben
     let moved = true;
     while (moved && qC.length > 0) {
       moved = false;
@@ -134,10 +220,23 @@ export function run(params, trips) {
         moved = true;
       } else break;
     }
-    moved = true;
-    while (moved && qN.length > 0 && space > 0) {
-      moved = false;
-      if (qN[0].tn <= space) {
+
+    // 2) No-críticos: solo si no hay críticos esperando en cola
+    //    y si no bloquean a un próximo crítico futuro
+    const critWaiting = qC.length > 0;
+    if (!critWaiting) {
+      const nextCrit = findNextCriticalArrival(trucks, pos);
+      moved = true;
+      while (moved && qN.length > 0 && space > 0) {
+        moved = false;
+        const candidate = qN[0];
+        if (candidate.tn > space) break;
+
+        if (wouldBlockCritical(level, candidate.tn, t, nextCrit, CAP, CONS_STEP)) {
+          candidate.retained = true;
+          break;
+        }
+
         const tr = qN.shift();
         level += tr.tn;
         space = CAP - level;
@@ -145,11 +244,17 @@ export function run(params, trips) {
         entries[t] = (entries[t] || 0) + tr.tn;
         moved = true;
       }
+    } else {
+      // Si hay un crítico esperando, marcamos los no-críticos como retenidos
+      for (const nc of qN) nc.retained = true;
     }
-    const cons = Math.min(CONS_STEP, level);
+
+    const isStopped = stoppedSteps.has(t);
+    const cons = isStopped ? 0 : Math.min(CONS_STEP, level);
     level -= cons;
   }
 
+  // Viajes que no se descargaron durante la semana
   for (const tr of qC) {
     finalIdx[tr.id] = END();
     entries[END()] = (entries[END()] || 0) + tr.tn;
@@ -176,6 +281,7 @@ export function run(params, trips) {
       final_day: diaFinal,
       final_time: horaFinal,
       delay_capacity_hours: retCap,
+      retained_for_critical: tr.retained,
     };
   });
 
@@ -185,9 +291,11 @@ export function run(params, trips) {
     const d = Math.floor(t / (24 * STEPS_H));
     const hTxt = stepToHHMM(t, STEPS_H, PASO);
     const ent = entries[t] || 0;
+    const boxEnt = boxMap[t] || 0;
+    const isStopped = stoppedSteps.has(t);
     const levelAtStart = lvl2;
     lvl2 = Math.min(CAP, lvl2 + ent);
-    const cons = Math.min(CONS_STEP, lvl2);
+    const cons = isStopped ? 0 : Math.min(CONS_STEP, lvl2);
     lvl2 -= cons;
     simulation.push({
       step_index: t,
@@ -196,7 +304,7 @@ export function run(params, trips) {
       entries_tons: ent,
       consumption_tons: cons,
       silo_level: levelAtStart,
-      is_stoppage: cons < CONS_STEP,
+      is_stoppage: isStopped,
     });
   }
 

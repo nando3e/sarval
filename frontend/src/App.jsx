@@ -9,6 +9,9 @@ import Planificacion from './pages/Planificacion';
 import ViajesExtras from './pages/ViajesExtras';
 import Secuenciacion from './pages/Secuenciacion';
 import Tolvas from './pages/Tolvas';
+import Paradas from './pages/Paradas';
+import Boxes from './pages/Boxes';
+import PersonalPlanta from './pages/PersonalPlanta';
 import Configuracion from './pages/Configuracion';
 import Proveedores from './pages/Proveedores';
 import Choferes from './pages/Choferes';
@@ -42,6 +45,9 @@ export default function App() {
         <Route path="viajes-extras" element={<ViajesExtras />} />
         <Route path="secuenciacion" element={<Secuenciacion />} />
         <Route path="tolvas" element={<Tolvas />} />
+        <Route path="paradas" element={<Paradas />} />
+        <Route path="boxes" element={<Boxes />} />
+        <Route path="personal-planta" element={<PersonalPlanta />} />
         <Route path="proveedores" element={<Proveedores />} />
         <Route path="choferes" element={<Choferes />} />
         <Route path="configuracion" element={<Configuracion />} />

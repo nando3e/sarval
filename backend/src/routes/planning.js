@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import { getActivePlanId, resolvePlanId, getMondayOfWeek, getNextWeekMonday, DAY_ORDER_SQL, toLocalDateOnly } from '../db/helpers.js';
 import { notifyWebhooks } from '../services/webhookEmitter.js';
+import { checkAlerts } from '../services/alertChecker.js';
 
 const router = Router();
 
@@ -106,6 +107,7 @@ router.get('/sequence', async (req, res) => {
         CONCAT(t.day, ' ', t.scheduled_time) AS "clave_hora_real",
         sr.final_day AS "dia_final", sr.final_time AS "hora_final",
         sr.delay_capacity_hours AS "retraso_capacidad_h",
+        sr.retained_for_critical AS "retenido_por_critico",
         sr.tolva_id, tol.numero AS "tolva_numero", tol.nombre AS "tolva_nombre"
        FROM sequence_results sr
        JOIN trips t ON t.id = sr.trip_id
@@ -149,7 +151,7 @@ router.post('/recalculate', async (req, res) => {
     }
 
     const tolvasRows = await pool.query(
-      'SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos FROM tolvas WHERE activa = true ORDER BY numero'
+      'SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h FROM tolvas WHERE activa = true ORDER BY numero'
     );
     if (tolvasRows.rows.length === 0) {
       return res.status(400).json({ error: 'No hay tolvas activas configuradas.' });
@@ -173,6 +175,17 @@ router.post('/recalculate', async (req, res) => {
     let totalSeq = 0;
     let totalSim = 0;
     const allDelayed = [];
+    const sequencesByTolva = {};
+    const simulationsByTolva = {};
+
+    const allStoppagesRows = await pool.query(
+      'SELECT tolva_id, dia, hora_inicio, hora_fin FROM stoppages WHERE plan_id = $1',
+      [planId]
+    );
+    const allBoxEntriesRows = await pool.query(
+      'SELECT tolva_id, total_tons, periodo_horas, dia, hora_inicio FROM box_entries WHERE plan_id = $1',
+      [planId]
+    );
 
     for (const tolva of tolvasRows.rows) {
       const tolvaTrips = allTripsRows.rows
@@ -184,16 +197,18 @@ router.post('/recalculate', async (req, res) => {
 
       if (tolvaTrips.length === 0) continue;
 
-      const { sequence, simulation } = run(tolva, tolvaTrips);
+      const tolvaStoppages = allStoppagesRows.rows.filter((s) => s.tolva_id === tolva.id);
+      const tolvaBoxEntries = allBoxEntriesRows.rows.filter((b) => b.tolva_id === tolva.id);
+      const { sequence, simulation } = run(tolva, tolvaTrips, tolvaStoppages, tolvaBoxEntries);
 
       if (sequence.length > 0) {
         const seqValues = sequence.map((_, i) => {
-          const o = i * 6;
-          return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6})`;
+          const o = i * 7;
+          return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7})`;
         }).join(', ');
-        const seqParams = sequence.flatMap((r) => [planId, r.trip_id, r.final_day, r.final_time, r.delay_capacity_hours, tolva.id]);
+        const seqParams = sequence.flatMap((r) => [planId, r.trip_id, r.final_day, r.final_time, r.delay_capacity_hours, !!r.retained_for_critical, tolva.id]);
         await pool.query(
-          `INSERT INTO sequence_results (plan_id, trip_id, final_day, final_time, delay_capacity_hours, tolva_id) VALUES ${seqValues}`,
+          `INSERT INTO sequence_results (plan_id, trip_id, final_day, final_time, delay_capacity_hours, retained_for_critical, tolva_id) VALUES ${seqValues}`,
           seqParams
         );
         totalSeq += sequence.length;
@@ -216,6 +231,9 @@ router.post('/recalculate', async (req, res) => {
         totalSim += simulation.length;
       }
 
+      sequencesByTolva[tolva.id] = sequence;
+      simulationsByTolva[tolva.id] = simulation;
+
       const delayed = sequence
         .filter((s) => Number(s.delay_capacity_hours) > 0)
         .map((s) => ({ ...s, tolva_id: tolva.id, tolva_numero: tolva.numero, tolva_nombre: tolva.nombre }));
@@ -225,6 +243,13 @@ router.post('/recalculate', async (req, res) => {
     await notifyWebhooks('recalculate_done', { plan_id: planId, sequence_count: totalSeq, simulation_count: totalSim });
     if (allDelayed.length) {
       await notifyWebhooks('delay_detected', { plan_id: planId, delayed_trips: allDelayed });
+    }
+
+    // Alertas preventivas (FASE F)
+    try {
+      await checkAlerts(planId, tolvasRows.rows, sequencesByTolva, simulationsByTolva);
+    } catch (alertErr) {
+      console.error('Error checking alerts:', alertErr);
     }
 
     res.json({ message: 'Recálculo completado', plan_id: planId, sequence_count: totalSeq, simulation_count: totalSim });

@@ -14,6 +14,9 @@ export default function Secuenciacion() {
   const [error, setError] = useState('');
   const [recalculating, setRecalculating] = useState(false);
   const [filterTolva, setFilterTolva] = useState('');
+  const [divertingId, setDivertingId] = useState(null);
+  const [divertTarget, setDivertTarget] = useState('');
+  const [divertBusy, setDivertBusy] = useState(false);
 
   const load = () => {
     const q = filterTolva ? `?tolva_id=${filterTolva}` : '';
@@ -40,10 +43,42 @@ export default function Secuenciacion() {
     }
   };
 
+  const startDivert = (row) => {
+    setDivertingId(row.id);
+    setDivertTarget('');
+  };
+
+  const cancelDivert = () => {
+    setDivertingId(null);
+    setDivertTarget('');
+  };
+
+  const confirmDivert = async (tripId) => {
+    if (!divertTarget) return;
+    setDivertBusy(true);
+    setError('');
+    try {
+      await api(`/api/trips/${tripId}/divert`, {
+        method: 'POST',
+        body: JSON.stringify({ tolva_id: Number(divertTarget) }),
+      });
+      setDivertingId(null);
+      setDivertTarget('');
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setDivertBusy(false);
+    }
+  };
+
   if (loading) return <p className={styles.muted}>Cargando…</p>;
 
   const dayChanged = (row) => row.day && row.dia_final && row.day !== row.dia_final;
   const showTolvaCol = tolvas.length > 1;
+
+  const retainedCount = sequence.filter((r) => !!r.retenido_por_critico).length;
+  const delayedCount = sequence.filter((r) => Number(r.retraso_capacidad_h) > 0).length;
 
   return (
     <div className={styles.page}>
@@ -61,6 +96,14 @@ export default function Secuenciacion() {
           {recalculating ? 'Recalculando…' : 'Actualizar'}
         </button>
       </div>
+
+      {(retainedCount > 0 || delayedCount > 0) && (
+        <p className={styles.muted} style={{ marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+          {delayedCount > 0 && <span style={{ color: 'var(--danger)', marginRight: '1rem' }}>{delayedCount} viaje(s) con retraso por capacidad</span>}
+          {retainedCount > 0 && <span style={{ color: '#a855f7' }}>{retainedCount} viaje(s) retenido(s) para dejar espacio a un crítico</span>}
+        </p>
+      )}
+
       {error && <p className={styles.error}>{error}</p>}
       {sequence.length === 0 ? (
         <p className={styles.muted}>No hay secuenciación. Sube una planificación, añade viajes y pulsa Actualizar.</p>
@@ -85,13 +128,18 @@ export default function Secuenciacion() {
                 <th>Día final</th>
                 <th>Hora final</th>
                 <th>Retraso cap. (h)</th>
+                <th title="El viaje fue retenido para dejar espacio a un viaje crítico próximo">Retenido</th>
+                {showTolvaCol && <th>Desviar</th>}
               </tr>
             </thead>
             <tbody>
               {sequence.map((row) => {
                 const retCap = Number(row.retraso_capacidad_h) || 0;
+                const retained = !!row.retenido_por_critico;
+                const isDiverting = divertingId === row.id;
+                const otherTolvas = tolvas.filter((t) => t.id !== row.tolva_id);
                 return (
-                  <tr key={row.id} className={retCap > 0 ? styles.rowDelay : dayChanged(row) ? styles.rowDayChange : ''}>
+                  <tr key={row.id} className={retained ? styles.rowRetained : retCap > 0 ? styles.rowDelay : dayChanged(row) ? styles.rowDayChange : ''}>
                     <td>{row.trip_number}</td>
                     {showTolvaCol && <td>{row.tolva_nombre || `Tolva ${row.tolva_numero || '?'}`}</td>}
                     <td>{row.day}</td>
@@ -108,6 +156,31 @@ export default function Secuenciacion() {
                     <td>{row.dia_final}</td>
                     <td>{toHHmm(row.hora_final)}</td>
                     <td>{retCap > 0 ? retCap.toFixed(1) : ''}</td>
+                    <td>{retained ? 'Sí' : ''}</td>
+                    {showTolvaCol && (
+                      <td>
+                        {isDiverting ? (
+                          <span className={styles.actions}>
+                            <select value={divertTarget} onChange={(e) => setDivertTarget(e.target.value)} className={styles.selectInline} style={{ minWidth: 90 }}>
+                              <option value="">Tolva…</option>
+                              {otherTolvas.map((t) => (
+                                <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+                              ))}
+                            </select>
+                            <button type="button" className={styles.btnSmall} disabled={!divertTarget || divertBusy} onClick={() => confirmDivert(row.trip_id)}>
+                              {divertBusy ? '…' : 'OK'}
+                            </button>
+                            <button type="button" className={styles.btnSmall} onClick={cancelDivert}>✕</button>
+                          </span>
+                        ) : (
+                          otherTolvas.length > 0 && (
+                            <button type="button" className={styles.btnSmall} onClick={() => startDivert(row)} title="Desviar a otra tolva">
+                              Desviar
+                            </button>
+                          )
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}

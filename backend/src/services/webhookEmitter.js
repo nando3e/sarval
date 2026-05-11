@@ -5,6 +5,11 @@ const EVENT_KEYS = [
   'delay_detected',
   'trip_extra_added',
   'trip_updated',
+  'trip_diverted',
+  'stoppage_created',
+  'low_level_alert',
+  'empty_prediction',
+  'critical_wait_exceeded',
   'plan_uploaded',
 ];
 

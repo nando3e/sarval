@@ -13,6 +13,9 @@ import webhooksRoutes from './routes/webhooks.js';
 import proveedoresRoutes from './routes/proveedores.js';
 import telegramDriversRoutes from './routes/telegramDrivers.js';
 import tolvasRoutes from './routes/tolvas.js';
+import stoppagesRoutes from './routes/stoppages.js';
+import boxEntriesRoutes from './routes/boxEntries.js';
+import personalPlantaRoutes from './routes/personalPlanta.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -33,6 +36,9 @@ app.use('/api/webhooks', authMiddleware, webhooksRoutes);
 app.use('/api/proveedores', authMiddleware, proveedoresRoutes);
 app.use('/api/telegram-drivers', authMiddleware, telegramDriversRoutes);
 app.use('/api/tolvas', authMiddleware, tolvasRoutes);
+app.use('/api/stoppages', authMiddleware, stoppagesRoutes);
+app.use('/api/box-entries', authMiddleware, boxEntriesRoutes);
+app.use('/api/personal-planta', authMiddleware, personalPlantaRoutes);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
