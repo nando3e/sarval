@@ -167,12 +167,12 @@ router.post('/:id/divert', async (req, res) => {
         for (let b = 0; b < simulation.length; b += batchSize) {
           const batch = simulation.slice(b, b + batchSize);
           const simValues = batch.map((_, i) => {
-            const o = i * 9;
-            return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9})`;
+            const o = i * 10;
+            return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10})`;
           }).join(', ');
-          const simParams = batch.flatMap((r) => [trip.plan_id, r.step_index, r.day, r.time, r.entries_tons, r.consumption_tons, r.silo_level, r.is_stoppage, tid]);
+          const simParams = batch.flatMap((r) => [trip.plan_id, r.step_index, r.day, r.time, r.entries_tons, r.box_entry_tons || 0, r.consumption_tons, r.silo_level, r.is_stoppage, tid]);
           await pool.query(
-            `INSERT INTO silo_simulation (plan_id, step_index, day, time, entries_tons, consumption_tons, silo_level, is_stoppage, tolva_id) VALUES ${simValues}`,
+            `INSERT INTO silo_simulation (plan_id, step_index, day, time, entries_tons, box_entry_tons, consumption_tons, silo_level, is_stoppage, tolva_id) VALUES ${simValues}`,
             simParams
           );
         }

@@ -3,7 +3,7 @@ import { api } from '../api';
 import { usePlan } from '../context/PlanContext';
 import { useTolvas } from '../context/TolvaContext';
 import {
-  ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer,
 } from 'recharts';
 import styles from './Dashboard.module.css';
@@ -14,10 +14,15 @@ function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload;
   if (!d) return null;
+  const boxTons = d.box_entry_tons || 0;
   return (
     <div className={styles.tooltip}>
       <p className={styles.tooltipTitle}>{d.label}</p>
       <p style={{ color: 'var(--accent)' }}>Nivel: <strong>{d.silo_level?.toFixed(1)} tn</strong></p>
+      {d.entries_tons > 0 && <p style={{ color: '#22c55e' }}>Entrada camión: +{(d.entries_tons - boxTons).toFixed(1)} tn</p>}
+      {boxTons > 0 && <p style={{ color: '#f59e0b' }}>Entrada boxes: +{boxTons.toFixed(1)} tn</p>}
+      {d.consumption_tons > 0 && <p style={{ color: '#ef4444', fontSize: '0.8rem' }}>Consumo: -{d.consumption_tons.toFixed(1)} tn</p>}
+      {d.is_stoppage && <p style={{ color: '#94a3b8', fontSize: '0.8rem' }}>⏸ Parada (consumo 0)</p>}
     </div>
   );
 }
@@ -164,6 +169,9 @@ export default function Dashboard() {
             <div className={styles.legend}>
               <span className={styles.legendItem}><span className={styles.dot} style={{ background: 'var(--accent)' }} />Nivel tolva</span>
               <span className={styles.legendItem}><span className={styles.dotLine} style={{ background: 'var(--text-muted)', opacity: 0.5 }} />Capacidad</span>
+              {filteredSeries.some((s) => s.box_entry_tons > 0) && (
+                <span className={styles.legendItem}><span className={styles.dot} style={{ background: '#f59e0b' }} />Entrada boxes</span>
+              )}
             </div>
             <ResponsiveContainer width="100%" height={380}>
               <ComposedChart data={filteredSeries} margin={{ top: 10, right: 20, left: 10, bottom: 30 }}>
@@ -194,6 +202,7 @@ export default function Dashboard() {
                       label={{ value: day, position: 'insideTopLeft', fontSize: 10, fill: 'var(--text-muted)', dy: -4 }} />
                   ) : null;
                 })}
+                <Bar dataKey="box_entry_tons" fill="#f59e0b" opacity={0.5} barSize={3} isAnimationActive={false} />
                 <Line type="linear" dataKey="silo_level" stroke="var(--accent)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>

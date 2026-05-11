@@ -153,7 +153,7 @@ router.get('/silo-chart', async (req, res) => {
 
     const [simRows, planRows] = await Promise.all([
       pool.query(
-        'SELECT step_index, day, time, entries_tons, consumption_tons, silo_level, is_stoppage FROM silo_simulation WHERE plan_id = $1 AND tolva_id = $2 ORDER BY step_index',
+        'SELECT step_index, day, time, entries_tons, box_entry_tons, consumption_tons, silo_level, is_stoppage FROM silo_simulation WHERE plan_id = $1 AND tolva_id = $2 ORDER BY step_index',
         [planId, tolva.id]
       ),
       pool.query('SELECT week_start FROM weekly_plans WHERE id = $1', [planId]),
@@ -198,6 +198,7 @@ router.get('/silo-chart', async (req, res) => {
         day_order: dayIdx >= 0 ? dayIdx : 6,
         timestamp,
         entries_tons: Number(s.entries_tons),
+        box_entry_tons: Number(s.box_entry_tons) || 0,
         consumption_tons: Number(s.consumption_tons),
         silo_level: Number(s.silo_level),
         is_stoppage: Boolean(s.is_stoppage),

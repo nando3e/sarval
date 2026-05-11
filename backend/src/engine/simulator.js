@@ -302,6 +302,7 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
       day: IDX_DAY[d],
       time: hTxt,
       entries_tons: ent,
+      box_entry_tons: boxEnt,
       consumption_tons: cons,
       silo_level: levelAtStart,
       is_stoppage: isStopped,
