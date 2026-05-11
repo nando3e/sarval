@@ -293,8 +293,8 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
     const ent = entries[t] || 0;
     const boxEnt = boxMap[t] || 0;
     const isStopped = stoppedSteps.has(t);
-    const levelAtStart = lvl2;
     lvl2 = Math.min(CAP, lvl2 + ent);
+    const levelAfterEntry = lvl2;
     const cons = isStopped ? 0 : Math.min(CONS_STEP, lvl2);
     lvl2 -= cons;
     simulation.push({
@@ -304,7 +304,7 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
       entries_tons: ent,
       box_entry_tons: boxEnt,
       consumption_tons: cons,
-      silo_level: levelAtStart,
+      silo_level: levelAfterEntry,
       is_stoppage: isStopped,
     });
   }
