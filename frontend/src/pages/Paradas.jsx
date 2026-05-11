@@ -92,25 +92,42 @@ export default function Paradas() {
       {showForm && (
         <form onSubmit={handleAdd} className={styles.form} style={{ marginBottom: '1.5rem' }}>
           {showTolvaCol && (
-            <select value={form.tolva_id} onChange={(e) => setForm((f) => ({ ...f, tolva_id: e.target.value }))} className={styles.input} style={{ minWidth: 130 }}>
-              {tolvas.map((t) => (
-                <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
-              ))}
-            </select>
+            <label className={styles.labelBlock}>
+              <span className={styles.labelText}>Tolva</span>
+              <select value={form.tolva_id} onChange={(e) => setForm((f) => ({ ...f, tolva_id: e.target.value }))} className={styles.input} style={{ minWidth: 130 }}>
+                {tolvas.map((t) => (
+                  <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+                ))}
+              </select>
+            </label>
           )}
-          <select value={form.dia} onChange={(e) => setForm((f) => ({ ...f, dia: e.target.value }))} className={styles.input}>
-            {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <input type="time" value={form.hora_inicio} onChange={(e) => setForm((f) => ({ ...f, hora_inicio: e.target.value }))} className={styles.input} required />
-          <span className={styles.muted}>a</span>
-          <input type="time" value={form.hora_fin} onChange={(e) => setForm((f) => ({ ...f, hora_fin: e.target.value }))} className={styles.input} required />
-          <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))} className={styles.input}>
-            <option value="mantenimiento">Mantenimiento</option>
-            <option value="averia">Avería</option>
-            <option value="otro">Otro</option>
-          </select>
-          <input placeholder="Descripción (opcional)" value={form.descripcion} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} className={styles.input} style={{ minWidth: 180 }} />
-          <button type="submit" disabled={saving} className={styles.button}>{saving ? 'Guardando…' : 'Crear'}</button>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Día</span>
+            <select value={form.dia} onChange={(e) => setForm((f) => ({ ...f, dia: e.target.value }))} className={styles.input}>
+              {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Desde</span>
+            <input type="time" value={form.hora_inicio} onChange={(e) => setForm((f) => ({ ...f, hora_inicio: e.target.value }))} className={styles.input} required />
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Hasta</span>
+            <input type="time" value={form.hora_fin} onChange={(e) => setForm((f) => ({ ...f, hora_fin: e.target.value }))} className={styles.input} required />
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Tipo</span>
+            <select value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))} className={styles.input}>
+              <option value="mantenimiento">Mantenimiento</option>
+              <option value="averia">Avería</option>
+              <option value="otro">Otro</option>
+            </select>
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Descripción</span>
+            <input placeholder="Opcional" value={form.descripcion} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} className={styles.input} style={{ minWidth: 160 }} />
+          </label>
+          <button type="submit" disabled={saving} className={styles.button} style={{ alignSelf: 'flex-end' }}>{saving ? 'Guardando…' : 'Crear'}</button>
         </form>
       )}
 

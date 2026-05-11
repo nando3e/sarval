@@ -96,25 +96,42 @@ export default function Boxes() {
       {showForm && (
         <form onSubmit={handleAdd} className={styles.form} style={{ marginBottom: '1.5rem' }}>
           {showTolvaCol && (
-            <select value={form.tolva_id} onChange={(e) => setForm((f) => ({ ...f, tolva_id: e.target.value }))} className={styles.input} style={{ minWidth: 130 }}>
-              {tolvas.map((t) => (
-                <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
-              ))}
-            </select>
+            <label className={styles.labelBlock}>
+              <span className={styles.labelText}>Tolva</span>
+              <select value={form.tolva_id} onChange={(e) => setForm((f) => ({ ...f, tolva_id: e.target.value }))} className={styles.input} style={{ minWidth: 130 }}>
+                {tolvas.map((t) => (
+                  <option key={t.id} value={t.id}>{t.nombre || `Tolva ${t.numero}`}</option>
+                ))}
+              </select>
+            </label>
           )}
-          <select value={form.dia} onChange={(e) => setForm((f) => ({ ...f, dia: e.target.value }))} className={styles.input}>
-            {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <input type="time" value={form.hora_inicio} onChange={(e) => setForm((f) => ({ ...f, hora_inicio: e.target.value }))} className={styles.input} title="Hora de inicio" />
-          <input type="number" min="1" step="1" placeholder="Nº boxes" value={form.num_boxes} onChange={(e) => setForm((f) => ({ ...f, num_boxes: e.target.value }))} className={styles.input} style={{ width: 90 }} />
-          <input type="number" min="0" step="0.1" placeholder="Toneladas totales" value={form.total_tons} onChange={(e) => setForm((f) => ({ ...f, total_tons: e.target.value }))} className={styles.input} style={{ width: 140 }} required />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span className={styles.muted} style={{ fontSize: '0.85rem' }}>en</span>
-            <input type="number" min="1" max="168" step="1" value={form.periodo_horas} onChange={(e) => setForm((f) => ({ ...f, periodo_horas: e.target.value }))} className={styles.input} style={{ width: 60 }} title="Periodo de reparto (horas)" />
-            <span className={styles.muted} style={{ fontSize: '0.85rem' }}>h</span>
-          </div>
-          <input placeholder="Descripción (opcional)" value={form.descripcion} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} className={styles.input} style={{ minWidth: 160 }} />
-          <button type="submit" disabled={saving} className={styles.button}>{saving ? 'Guardando…' : 'Crear'}</button>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Día</span>
+            <select value={form.dia} onChange={(e) => setForm((f) => ({ ...f, dia: e.target.value }))} className={styles.input}>
+              {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Hora inicio</span>
+            <input type="time" value={form.hora_inicio} onChange={(e) => setForm((f) => ({ ...f, hora_inicio: e.target.value }))} className={styles.input} />
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Nº boxes</span>
+            <input type="number" min="1" step="1" value={form.num_boxes} onChange={(e) => setForm((f) => ({ ...f, num_boxes: e.target.value }))} className={styles.input} style={{ width: 80 }} />
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Toneladas totales</span>
+            <input type="number" min="0" step="0.1" value={form.total_tons} onChange={(e) => setForm((f) => ({ ...f, total_tons: e.target.value }))} className={styles.input} style={{ width: 120 }} required />
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Repartir en (horas)</span>
+            <input type="number" min="1" max="168" step="1" value={form.periodo_horas} onChange={(e) => setForm((f) => ({ ...f, periodo_horas: e.target.value }))} className={styles.input} style={{ width: 70 }} />
+          </label>
+          <label className={styles.labelBlock}>
+            <span className={styles.labelText}>Descripción</span>
+            <input placeholder="Opcional" value={form.descripcion} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} className={styles.input} style={{ minWidth: 140 }} />
+          </label>
+          <button type="submit" disabled={saving} className={styles.button} style={{ alignSelf: 'flex-end' }}>{saving ? 'Guardando…' : 'Crear'}</button>
         </form>
       )}
 
