@@ -91,6 +91,22 @@ export default function Dashboard() {
     truck_entry_tons: s.truck_entry_tons != null ? s.truck_entry_tons : Math.max(0, (s.entries_tons || 0) - (s.box_entry_tons || 0)),
     consumption_neg: -Math.abs(s.consumption_tons || 0),
   }));
+  // Serie en dientes de sierra para el panel de nivel: por cada paso con entrada,
+  // insertamos un punto "pre-entrada" en step_index - 0.0001 con el nivel justo
+  // antes de la descarga. Así el salto vertical mide exactamente las tn entradas.
+  const levelSawtoothSeries = [];
+  for (const p of filteredSeries) {
+    const entries = Number(p.entries_tons) || 0;
+    if (entries > 0.0001) {
+      levelSawtoothSeries.push({
+        ...p,
+        step_index: p.step_index - 0.0001,
+        silo_level: Math.max(0, p.silo_level - entries),
+        _phase: 'pre',
+      });
+    }
+    levelSawtoothSeries.push({ ...p, _phase: 'post' });
+  }
   const activeDays = [...new Set(series.map((s) => s.day))].filter((d) => DAY_TICKS.includes(d));
   const noData = series.length === 0;
 
@@ -216,7 +232,7 @@ export default function Dashboard() {
 
             <div className={styles.chartPanelStack}>
               <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={filteredSeries} syncId="tolva-sync" margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                <ComposedChart data={levelSawtoothSeries} syncId="tolva-sync" margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="step_index"
