@@ -162,6 +162,15 @@ export default function Dashboard() {
             ))}
           </select>
         )}
+        {selectedTolva && (
+          <button
+            type="button"
+            onClick={() => setSelectedTolva('')}
+            style={{ padding: '0.3rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', fontSize: '0.85rem', cursor: 'pointer' }}
+          >
+            ← Todas las tolvas
+          </button>
+        )}
       </div>
 
       {/* KPIs globales */}
@@ -202,7 +211,8 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* Gráfico */}
+      {/* Gráfico: solo si hay una sola tolva o se ha seleccionado una */}
+      {(tolvas.length === 1 || selectedTolva) && (
       <div className={styles.chartWrap}>
         <div className={styles.chartHeader}>
           <h2 className={styles.h2}>
@@ -297,6 +307,12 @@ export default function Dashboard() {
           </>
         )}
       </div>
+      )}
+      {tolvas.length > 1 && !selectedTolva && (
+        <p className={styles.muted} style={{ marginTop: '1rem' }}>
+          Selecciona una tolva (clic en su tarjeta o en el desplegable) para ver su gráfico de nivel.
+        </p>
+      )}
     </div>
   );
 }

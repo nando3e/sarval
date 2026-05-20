@@ -46,8 +46,8 @@ router.post('/', upload.single('file'), async (req, res) => {
     for (let b = 0; b < trips.length; b += batchSize) {
       const batch = trips.slice(b, b + batchSize);
       const values = batch.map((_, i) => {
-        const o = i * 8;
-        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8})`;
+        const o = i * 9;
+        return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9})`;
       }).join(', ');
       const params = batch.flatMap((t) => {
         let tid = defaultTolvaId;
@@ -60,10 +60,10 @@ router.post('/', upload.single('file'), async (req, res) => {
             if (byName) tid = byName;
           }
         }
-        return [planId, t.trip_number, t.day, t.scheduled_time, t.supplier, t.tons, t.is_critical, tid];
+        return [planId, t.trip_number, t.day, t.scheduled_time, t.supplier, t.tons, t.is_critical, tid, t.producto || ''];
       });
       await pool.query(
-        `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, tons, is_critical, tolva_id)
+        `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, tons, is_critical, tolva_id, producto)
          VALUES ${values}`,
         params
       );

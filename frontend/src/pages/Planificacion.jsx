@@ -2,13 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { api, appendPlanId } from '../api';
 import { usePlan } from '../context/PlanContext';
 import { useTolvas } from '../context/TolvaContext';
+import { shortDate, getWeekStart } from '../utils/dates';
 import styles from './Tables.module.css';
 
 const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 export default function Planificacion() {
-  const { planId } = usePlan();
+  const { planId, weeks } = usePlan();
   const { tolvas } = useTolvas();
+  const weekStart = getWeekStart(planId, weeks);
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -64,6 +66,7 @@ export default function Planificacion() {
       day: trip.day,
       scheduled_time: String(trip.scheduled_time ?? '').slice(0, 5),
       supplier: trip.supplier,
+      producto: trip.producto || '',
       tons: trip.tons,
       is_critical: trip.is_critical,
       tolva_id: trip.tolva_id || '',
@@ -141,17 +144,12 @@ export default function Planificacion() {
 
       <div className={styles.csvExample}>
         <p className={styles.csvExampleTitle}>Formato del CSV / Excel</p>
-        <p className={styles.muted}>Primera fila: cabecera. Filas siguientes: un viaje por línea. Nº viaje: matrícula alfanumérica obligatoria y única dentro de la semana. Días: Lunes…Sábado. Hora: HH:MM. Crítico: Sí/Si o vacío.{showTolvaCol ? ' Tolva: nombre exacto de la tolva tal como aparece en la pantalla Tolvas.' : ''}</p>
+        <p className={styles.muted}>Primera fila: cabecera. Filas siguientes: un viaje por línea. Nº viaje: matrícula alfanumérica obligatoria y única dentro de la semana. Días: Lunes…Sábado. Hora: HH:MM. Producto: texto libre obligatorio. Crítico: Sí/Si o vacío. Tolva: nombre exacto de la tolva tal como aparece en la pantalla Tolvas{showTolvaCol ? '' : ' (opcional con una sola tolva; obligatoria cuando hay varias)'}.</p>
         <pre className={styles.csvExampleBlock}>
-{showTolvaCol
-? `Nº viaje;Día;Hora;Proveedor;Toneladas;Crítico;Tolva
-V-2026-0001;Lunes;07:00;PROVEEDOR A;22,5;;${tolvas[0]?.nombre || 'Tolva 1'}
-V-2026-0002;Lunes;09:30;PROVEEDOR B;18;Sí;${tolvas[1]?.nombre || tolvas[0]?.nombre || 'Tolva 2'}
-V-2026-0003;Martes;08:00;PROVEEDOR A;20;;${tolvas[0]?.nombre || 'Tolva 1'}`
-: `Nº viaje;Día;Hora;Proveedor;Toneladas;Crítico
-V-2026-0001;Lunes;07:00;PROVEEDOR A;22,5;
-V-2026-0002;Lunes;09:30;PROVEEDOR B;18;Sí
-V-2026-0003;Martes;08:00;PROVEEDOR A;20;`}
+{`Nº viaje;Día;Hora;Proveedor;Producto;Toneladas;Crítico;Tolva
+V-2026-0001;Lunes;07:00;PROVEEDOR A;Maíz;22,5;;${tolvas[0]?.nombre || 'Tolva 1'}
+V-2026-0002;Lunes;09:30;PROVEEDOR B;Soja;18;Sí;${tolvas[1]?.nombre || tolvas[0]?.nombre || 'Tolva 1'}
+V-2026-0003;Martes;08:00;PROVEEDOR A;Trigo;20;;${tolvas[0]?.nombre || 'Tolva 1'}`}
         </pre>
         <p className={styles.csvExampleNote}>En CSV puedes usar separador <code>;</code> o <code>,</code>. En Excel usa las mismas columnas.</p>
       </div>
@@ -171,6 +169,7 @@ V-2026-0003;Martes;08:00;PROVEEDOR A;20;`}
                 <th>Día</th>
                 <th>Hora</th>
                 <th>Proveedor</th>
+                <th>Producto</th>
                 <th>Ton</th>
                 <th>Crítico</th>
                 <th></th>
@@ -198,6 +197,7 @@ V-2026-0003;Martes;08:00;PROVEEDOR A;20;`}
                     </td>
                     <td><input type="time" value={editData.scheduled_time} onChange={(e) => setEditData((d) => ({ ...d, scheduled_time: e.target.value }))} className={styles.inputInline} /></td>
                     <td><input value={editData.supplier} onChange={(e) => setEditData((d) => ({ ...d, supplier: e.target.value }))} className={styles.inputInline} /></td>
+                    <td><input value={editData.producto} onChange={(e) => setEditData((d) => ({ ...d, producto: e.target.value }))} className={styles.inputInline} /></td>
                     <td><input type="number" min="0" step="0.1" value={editData.tons} onChange={(e) => setEditData((d) => ({ ...d, tons: e.target.value }))} className={styles.inputInline} style={{ width: 70 }} /></td>
                     <td><input type="checkbox" checked={editData.is_critical} onChange={(e) => setEditData((d) => ({ ...d, is_critical: e.target.checked }))} /></td>
                     <td className={styles.actions}>
@@ -209,9 +209,10 @@ V-2026-0003;Martes;08:00;PROVEEDOR A;20;`}
                   <tr key={t.id}>
                     <td>{t.trip_number}</td>
                     {showTolvaCol && <td>{t.tolva_nombre || (t.tolva_numero ? `Tolva ${t.tolva_numero}` : '—')}</td>}
-                    <td>{t.day}</td>
+                    <td>{t.day}{weekStart ? ` ${shortDate(weekStart, t.day)}` : ''}</td>
                     <td>{String(t.scheduled_time ?? '').slice(0, 5)}</td>
                     <td>{t.supplier}</td>
+                    <td>{t.producto || '—'}</td>
                     <td>{t.tons}</td>
                     <td>{t.is_critical ? 'Sí' : 'No'}</td>
                     <td className={styles.actions}>

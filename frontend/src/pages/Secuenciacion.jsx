@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { usePlan } from '../context/PlanContext';
 import { useTolvas } from '../context/TolvaContext';
+import { shortDate, getWeekStart } from '../utils/dates';
 import styles from './Tables.module.css';
 
 const toHHmm = (v) => String(v ?? '').slice(0, 5);
 
 export default function Secuenciacion() {
-  const { planId } = usePlan();
+  const { planId, weeks } = usePlan();
   const { tolvas } = useTolvas();
+  const weekStart = getWeekStart(planId, weeks);
   const [sequence, setSequence] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,19 +119,18 @@ export default function Secuenciacion() {
                 <th>Día</th>
                 <th>Hora prev.</th>
                 <th>Proveedor</th>
+                <th>Producto</th>
                 <th>Ton</th>
-                <th>Crítico</th>
-                <th>Retraso llegada (h)</th>
-                <th>Nueva hora</th>
-                <th>Estado</th>
-                <th>Extra</th>
-                <th>Hora real</th>
-                <th>Clave</th>
-                <th>Día final</th>
-                <th>Hora final</th>
-                <th>Retraso cap. (h)</th>
-                <th title="El viaje fue retenido para dejar espacio a un viaje crítico próximo">Retenido</th>
-                {showTolvaCol && <th>Desviar</th>}
+                <th title="Si el viaje es crítico (prioridad alta). Toda la fila se muestra en negrita.">Crítico</th>
+                <th title="Retraso (en horas) que el chófer o el bot ha reportado para la llegada de este viaje. Se rellena manualmente o desde Telegram. NOTA: hoy no recalcula automáticamente la secuenciación.">Retraso llegada (h)</th>
+                <th title="Nueva hora prevista de llegada cuando el chófer comunica un cambio respecto a la planificada. NOTA: hoy no recalcula la secuenciación.">Nueva hora</th>
+                <th title="Estado operativo del viaje: pendiente, confirmado por el chófer, en ruta, llegado, etc. Se actualizará automáticamente cuando el bot esté conectado.">Estado</th>
+                <th title="Indica si el viaje no estaba en la planificación base y se ha añadido durante la semana.">Extra</th>
+                <th title="Día en que el motor de simulación calcula que el camión descargará realmente.">Día final</th>
+                <th title="Hora en que el motor de simulación calcula que el camión descargará realmente.">Hora final</th>
+                <th title="Horas que el camión espera entre su hora prevista de llegada y su descarga real, por falta de espacio en el silo.">Retraso cap. (h)</th>
+                <th title="El viaje fue retenido por el motor para dejar espacio a un viaje crítico próximo.">Retenido</th>
+                {showTolvaCol && <th title="Mover este viaje a otra tolva y recalcular ambas tolvas.">Desviar</th>}
               </tr>
             </thead>
             <tbody>
@@ -147,18 +148,17 @@ export default function Secuenciacion() {
                   <tr key={row.id} className={rowClasses.join(' ')}>
                     <td>{row.trip_number}</td>
                     {showTolvaCol && <td>{row.tolva_nombre || `Tolva ${row.tolva_numero || '?'}`}</td>}
-                    <td>{row.day}</td>
+                    <td>{row.day}{weekStart ? ` ${shortDate(weekStart, row.day)}` : ''}</td>
                     <td>{toHHmm(row.hora_prevista)}</td>
                     <td>{row.supplier}</td>
+                    <td>{row.producto || '—'}</td>
                     <td>{row.tons}</td>
                     <td>{row.critico ? 'Sí' : 'No'}</td>
                     <td>{row.retraso_h != null && Number(row.retraso_h) > 0 ? Number(row.retraso_h).toFixed(1) : ''}</td>
                     <td>{toHHmm(row.nueva_hora)}</td>
                     <td>{row.estado !== 'pending' ? row.estado : ''}</td>
                     <td>{row.viaje_extra ? 'Sí' : ''}</td>
-                    <td>{toHHmm(row.hora_real)}</td>
-                    <td>{row.clave_hora_real || ''}</td>
-                    <td>{row.dia_final}</td>
+                    <td>{row.dia_final}{weekStart && row.dia_final ? ` ${shortDate(weekStart, row.dia_final)}` : ''}</td>
                     <td>{toHHmm(row.hora_final)}</td>
                     <td>{retCap > 0 ? retCap.toFixed(1) : ''}</td>
                     <td>{retained ? 'Sí' : ''}</td>

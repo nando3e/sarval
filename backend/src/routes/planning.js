@@ -101,10 +101,9 @@ router.get('/sequence', async (req, res) => {
     const params = tolvaId ? [planId, tolvaId] : [planId];
     const r = await pool.query(
       `SELECT sr.id, t.trip_number, t.day, t.scheduled_time AS "hora_prevista",
-        t.supplier, t.tons, t.is_critical AS "critico",
+        t.supplier, t.producto, t.tons, t.is_critical AS "critico",
         t.delay_h AS "retraso_h", t.new_time AS "nueva_hora", t.status AS "estado",
-        t.is_extra AS "viaje_extra", t.scheduled_time AS "hora_real",
-        CONCAT(t.day, ' ', t.scheduled_time) AS "clave_hora_real",
+        t.is_extra AS "viaje_extra",
         sr.final_day AS "dia_final", sr.final_time AS "hora_final",
         sr.delay_capacity_hours AS "retraso_capacidad_h",
         sr.retained_for_critical AS "retenido_por_critico",

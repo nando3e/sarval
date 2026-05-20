@@ -42,19 +42,20 @@ router.post('/extra', async (req, res) => {
   try {
     const planId = await resolvePlanId(req);
     if (!planId) return res.status(400).json({ error: 'No hay plan activo' });
-    const { trip_number, day, scheduled_time, supplier, tons, is_critical, tolva_id } = req.body || {};
+    const { trip_number, day, scheduled_time, supplier, producto, tons, is_critical, tolva_id } = req.body || {};
     const tripNumber = String(trip_number ?? '').trim();
-    if (!tripNumber || !day || !scheduled_time || !supplier || tons == null || !tolva_id) {
-      return res.status(400).json({ error: 'Faltan: trip_number, day, scheduled_time, supplier, tons, tolva_id' });
+    const prod = String(producto ?? '').trim();
+    if (!tripNumber || !day || !scheduled_time || !supplier || !prod || tons == null || !tolva_id) {
+      return res.status(400).json({ error: 'Faltan: trip_number, day, scheduled_time, supplier, producto, tons, tolva_id' });
     }
     const dup = await pool.query('SELECT 1 FROM trips WHERE plan_id = $1 AND trip_number = $2 LIMIT 1', [planId, tripNumber]);
     if (dup.rows.length > 0) {
       return res.status(409).json({ error: `Ya existe un viaje con la matrícula "${tripNumber}" en esta semana` });
     }
     const r = await pool.query(
-      `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, tons, is_critical, is_extra, tolva_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8) RETURNING *`,
-      [planId, tripNumber, day, scheduled_time, supplier, Number(tons), !!is_critical, parseInt(tolva_id, 10)]
+      `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, producto, tons, is_critical, is_extra, tolva_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9) RETURNING *`,
+      [planId, tripNumber, day, scheduled_time, supplier, prod, Number(tons), !!is_critical, parseInt(tolva_id, 10)]
     );
     const trip = r.rows[0];
     await notifyWebhooks('trip_extra_added', trip);
@@ -67,13 +68,14 @@ router.post('/extra', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { day, scheduled_time, supplier, tons, is_critical, delay_h, new_time, status, tolva_id } = req.body || {};
+    const { day, scheduled_time, supplier, producto, tons, is_critical, delay_h, new_time, status, tolva_id } = req.body || {};
     const updates = [];
     const values = [];
     let i = 1;
     if (day != null) { updates.push(`day = $${i++}`); values.push(day); }
     if (scheduled_time != null) { updates.push(`scheduled_time = $${i++}`); values.push(scheduled_time); }
     if (supplier != null) { updates.push(`supplier = $${i++}`); values.push(supplier); }
+    if (producto != null) { updates.push(`producto = $${i++}`); values.push(String(producto).trim()); }
     if (tons != null) { updates.push(`tons = $${i++}`); values.push(Number(tons)); }
     if (is_critical != null) { updates.push(`is_critical = $${i++}`); values.push(!!is_critical); }
     if (delay_h != null) { updates.push(`delay_h = $${i++}`); values.push(Number(delay_h)); }

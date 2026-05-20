@@ -2,17 +2,19 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { usePlan } from '../context/PlanContext';
 import { useTolvas } from '../context/TolvaContext';
+import { shortDate, getWeekStart } from '../utils/dates';
 import styles from './Tables.module.css';
 
 const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 export default function ViajesExtras() {
-  const { planId } = usePlan();
+  const { planId, weeks } = usePlan();
   const { tolvas } = useTolvas();
+  const weekStart = getWeekStart(planId, weeks);
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ trip_number: '', day: 'Lunes', scheduled_time: '08:00', supplier: '', tons: '', is_critical: false, tolva_id: '' });
+  const [form, setForm] = useState({ trip_number: '', day: 'Lunes', scheduled_time: '08:00', supplier: '', producto: '', tons: '', is_critical: false, tolva_id: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => api('/api/trips').then(setTrips).catch((e) => setError(e.message));
@@ -38,12 +40,13 @@ export default function ViajesExtras() {
           day: form.day,
           scheduled_time: form.scheduled_time,
           supplier: form.supplier.trim(),
+          producto: form.producto.trim(),
           tons: Number(form.tons),
           is_critical: form.is_critical,
           tolva_id: form.tolva_id ? Number(form.tolva_id) : undefined,
         }),
       });
-      setForm((f) => ({ ...f, trip_number: '', supplier: '', tons: '', is_critical: false }));
+      setForm((f) => ({ ...f, trip_number: '', supplier: '', producto: '', tons: '', is_critical: false }));
       load();
     } catch (err) {
       setError(err.message);
@@ -105,6 +108,13 @@ export default function ViajesExtras() {
           required
         />
         <input
+          placeholder="Producto"
+          value={form.producto}
+          onChange={(e) => setForm((f) => ({ ...f, producto: e.target.value }))}
+          className={styles.input}
+          required
+        />
+        <input
           type="number"
           placeholder="Toneladas"
           min="0"
@@ -137,6 +147,7 @@ export default function ViajesExtras() {
                 <th>Día</th>
                 <th>Hora</th>
                 <th>Proveedor</th>
+                <th>Producto</th>
                 <th>Ton</th>
                 <th>Crítico</th>
               </tr>
@@ -146,9 +157,10 @@ export default function ViajesExtras() {
                 <tr key={t.id}>
                   <td>{t.trip_number}</td>
                   {showTolvaCol && <td>{t.tolva_nombre || (t.tolva_numero ? `Tolva ${t.tolva_numero}` : '—')}</td>}
-                  <td>{t.day}</td>
+                  <td>{t.day}{weekStart ? ` ${shortDate(weekStart, t.day)}` : ''}</td>
                   <td>{String(t.scheduled_time ?? '').slice(0, 5)}</td>
                   <td>{t.supplier}</td>
+                  <td>{t.producto || '—'}</td>
                   <td>{t.tons}</td>
                   <td>{t.is_critical ? 'Sí' : 'No'}</td>
                 </tr>

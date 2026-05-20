@@ -65,12 +65,13 @@ export function parseFile(buffer, filename) {
     time: header.findIndex((h) => h.includes('hora') || h === 'time'),
     supplier: header.findIndex((h) => h.includes('proveedor') || h.includes('supplier')),
     tons: header.findIndex((h) => h.includes('tonelada') || h.includes('tons') || h.includes('tn')),
+    producto: header.findIndex((h) => h.includes('producto') || h === 'product'),
     critical: header.findIndex((h) => h.includes('critico') || h.includes('crítico') || h.includes('critical')),
     tolva: header.findIndex((h) => h.includes('tolva') || h === 'hopper'),
   };
 
-  if (colMap.day < 0 || colMap.time < 0 || colMap.supplier < 0 || colMap.tons < 0 || colMap.id < 0) {
-    return { trips: [], errors: [`No se encontraron las columnas necesarias (se requieren Nº viaje, Día, Hora, Proveedor, Toneladas). Cabecera detectada: ${JSON.stringify(rows[0])}`] };
+  if (colMap.day < 0 || colMap.time < 0 || colMap.supplier < 0 || colMap.tons < 0 || colMap.id < 0 || colMap.producto < 0) {
+    return { trips: [], errors: [`No se encontraron las columnas necesarias (se requieren Nº viaje, Día, Hora, Proveedor, Toneladas, Producto). Cabecera detectada: ${JSON.stringify(rows[0])}`] };
   }
 
   const trips = [];
@@ -85,6 +86,7 @@ export function parseFile(buffer, filename) {
     const day = normalizeDay(row[colMap.day]);
     const time = normalizeTime(row[colMap.time]);
     const supplier = String(row[colMap.supplier] ?? '').trim();
+    const producto = String(row[colMap.producto] ?? '').trim();
     const rawTons = row[colMap.tons];
     const tons = typeof rawTons === 'number' ? rawTons : Number(String(rawTons).replace(',', '.'));
     const isCritical = colMap.critical >= 0 ? normalizeCritical(row[colMap.critical]) : false;
@@ -94,11 +96,12 @@ export function parseFile(buffer, filename) {
     if (!day) { errors.push(`Fila ${rowNum}: día inválido "${row[colMap.day]}"`); continue; }
     if (!time) { errors.push(`Fila ${rowNum}: hora inválida "${row[colMap.time]}"`); continue; }
     if (!supplier) { errors.push(`Fila ${rowNum}: proveedor vacío`); continue; }
+    if (!producto) { errors.push(`Fila ${rowNum}: producto vacío`); continue; }
     if (Number.isNaN(tons) || tons <= 0) { errors.push(`Fila ${rowNum}: toneladas inválidas "${rawTons}"`); continue; }
 
     seenNumbers.add(tripNumber);
     const tolva = colMap.tolva >= 0 ? row[colMap.tolva] : null;
-    trips.push({ trip_number: tripNumber, day, scheduled_time: time, supplier, tons, is_critical: isCritical, tolva });
+    trips.push({ trip_number: tripNumber, day, scheduled_time: time, supplier, producto, tons, is_critical: isCritical, tolva });
   }
 
   return { trips, errors };
