@@ -112,7 +112,7 @@ export default function Secuenciacion() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>ID</th>
+                <th>Nº viaje</th>
                 {showTolvaCol && <th>Tolva</th>}
                 <th>Día</th>
                 <th>Hora prev.</th>
@@ -138,8 +138,13 @@ export default function Secuenciacion() {
                 const retained = !!row.retenido_por_critico;
                 const isDiverting = divertingId === row.id;
                 const otherTolvas = tolvas.filter((t) => t.id !== row.tolva_id);
+                const rowClasses = [];
+                if (row.critico) rowClasses.push(styles.rowCritical);
+                if (retained) rowClasses.push(styles.rowRetained);
+                else if (retCap > 0) rowClasses.push(styles.rowDelay);
+                else if (dayChanged(row)) rowClasses.push(styles.rowDayChange);
                 return (
-                  <tr key={row.id} className={retained ? styles.rowRetained : retCap > 0 ? styles.rowDelay : dayChanged(row) ? styles.rowDayChange : ''}>
+                  <tr key={row.id} className={rowClasses.join(' ')}>
                     <td>{row.trip_number}</td>
                     {showTolvaCol && <td>{row.tolva_nombre || `Tolva ${row.tolva_numero || '?'}`}</td>}
                     <td>{row.day}</td>

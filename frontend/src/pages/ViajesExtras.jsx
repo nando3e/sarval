@@ -12,7 +12,7 @@ export default function ViajesExtras() {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ day: 'Lunes', scheduled_time: '08:00', supplier: '', tons: '', is_critical: false, tolva_id: '' });
+  const [form, setForm] = useState({ trip_number: '', day: 'Lunes', scheduled_time: '08:00', supplier: '', tons: '', is_critical: false, tolva_id: '' });
   const [saving, setSaving] = useState(false);
 
   const load = () => api('/api/trips').then(setTrips).catch((e) => setError(e.message));
@@ -34,6 +34,7 @@ export default function ViajesExtras() {
       await api('/api/trips/extra', {
         method: 'POST',
         body: JSON.stringify({
+          trip_number: form.trip_number.trim(),
           day: form.day,
           scheduled_time: form.scheduled_time,
           supplier: form.supplier.trim(),
@@ -42,7 +43,7 @@ export default function ViajesExtras() {
           tolva_id: form.tolva_id ? Number(form.tolva_id) : undefined,
         }),
       });
-      setForm((f) => ({ ...f, supplier: '', tons: '', is_critical: false }));
+      setForm((f) => ({ ...f, trip_number: '', supplier: '', tons: '', is_critical: false }));
       load();
     } catch (err) {
       setError(err.message);
@@ -61,6 +62,14 @@ export default function ViajesExtras() {
       <h1 className={styles.h1}>Viajes extras</h1>
       {error && <p className={styles.error}>{error}</p>}
       <form onSubmit={handleSubmit} className={styles.form}>
+        <input
+          placeholder="Nº viaje"
+          value={form.trip_number}
+          onChange={(e) => setForm((f) => ({ ...f, trip_number: e.target.value }))}
+          className={styles.input}
+          style={{ minWidth: 110 }}
+          required
+        />
         {showTolvaCol && (
           <select
             value={form.tolva_id}
@@ -123,7 +132,7 @@ export default function ViajesExtras() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>#</th>
+                <th>Nº viaje</th>
                 {showTolvaCol && <th>Tolva</th>}
                 <th>Día</th>
                 <th>Hora</th>

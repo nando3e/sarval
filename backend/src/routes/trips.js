@@ -42,12 +42,15 @@ router.post('/extra', async (req, res) => {
   try {
     const planId = await resolvePlanId(req);
     if (!planId) return res.status(400).json({ error: 'No hay plan activo' });
-    const { day, scheduled_time, supplier, tons, is_critical, tolva_id } = req.body || {};
-    if (!day || !scheduled_time || !supplier || tons == null || !tolva_id) {
-      return res.status(400).json({ error: 'Faltan: day, scheduled_time, supplier, tons, tolva_id' });
+    const { trip_number, day, scheduled_time, supplier, tons, is_critical, tolva_id } = req.body || {};
+    const tripNumber = String(trip_number ?? '').trim();
+    if (!tripNumber || !day || !scheduled_time || !supplier || tons == null || !tolva_id) {
+      return res.status(400).json({ error: 'Faltan: trip_number, day, scheduled_time, supplier, tons, tolva_id' });
     }
-    const maxNum = await pool.query('SELECT COALESCE(MAX(trip_number), 0) + 1 AS n FROM trips WHERE plan_id = $1', [planId]);
-    const tripNumber = maxNum.rows[0].n;
+    const dup = await pool.query('SELECT 1 FROM trips WHERE plan_id = $1 AND trip_number = $2 LIMIT 1', [planId, tripNumber]);
+    if (dup.rows.length > 0) {
+      return res.status(409).json({ error: `Ya existe un viaje con la matrícula "${tripNumber}" en esta semana` });
+    }
     const r = await pool.query(
       `INSERT INTO trips (plan_id, trip_number, day, scheduled_time, supplier, tons, is_critical, is_extra, tolva_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8) RETURNING *`,

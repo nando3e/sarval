@@ -141,17 +141,17 @@ export default function Planificacion() {
 
       <div className={styles.csvExample}>
         <p className={styles.csvExampleTitle}>Formato del CSV / Excel</p>
-        <p className={styles.muted}>Primera fila: cabecera. Filas siguientes: un viaje por línea. Días: Lunes…Sábado. Hora: HH:MM. Crítico: Sí/Si o vacío.{showTolvaCol ? ' Tolva: número o nombre de tolva (opcional).' : ''}</p>
+        <p className={styles.muted}>Primera fila: cabecera. Filas siguientes: un viaje por línea. Nº viaje: matrícula alfanumérica obligatoria y única dentro de la semana. Días: Lunes…Sábado. Hora: HH:MM. Crítico: Sí/Si o vacío.{showTolvaCol ? ' Tolva: nombre exacto de la tolva tal como aparece en la pantalla Tolvas.' : ''}</p>
         <pre className={styles.csvExampleBlock}>
 {showTolvaCol
-? `ID;Día;Hora;Proveedor;Toneladas;Crítico;Tolva
-1;Lunes;07:00;PROVEEDOR A;22,5;;1
-2;Lunes;09:30;PROVEEDOR B;18;Sí;2
-3;Martes;08:00;PROVEEDOR A;20;;1`
-: `ID;Día;Hora;Proveedor;Toneladas;Crítico
-1;Lunes;07:00;PROVEEDOR A;22,5;
-2;Lunes;09:30;PROVEEDOR B;18;Sí
-3;Martes;08:00;PROVEEDOR A;20;`}
+? `Nº viaje;Día;Hora;Proveedor;Toneladas;Crítico;Tolva
+V-2026-0001;Lunes;07:00;PROVEEDOR A;22,5;;${tolvas[0]?.nombre || 'Tolva 1'}
+V-2026-0002;Lunes;09:30;PROVEEDOR B;18;Sí;${tolvas[1]?.nombre || tolvas[0]?.nombre || 'Tolva 2'}
+V-2026-0003;Martes;08:00;PROVEEDOR A;20;;${tolvas[0]?.nombre || 'Tolva 1'}`
+: `Nº viaje;Día;Hora;Proveedor;Toneladas;Crítico
+V-2026-0001;Lunes;07:00;PROVEEDOR A;22,5;
+V-2026-0002;Lunes;09:30;PROVEEDOR B;18;Sí
+V-2026-0003;Martes;08:00;PROVEEDOR A;20;`}
         </pre>
         <p className={styles.csvExampleNote}>En CSV puedes usar separador <code>;</code> o <code>,</code>. En Excel usa las mismas columnas.</p>
       </div>
@@ -166,7 +166,7 @@ export default function Planificacion() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>#</th>
+                <th>Nº viaje</th>
                 {showTolvaCol && <th>Tolva</th>}
                 <th>Día</th>
                 <th>Hora</th>

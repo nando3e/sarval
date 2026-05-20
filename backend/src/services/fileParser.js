@@ -35,7 +35,8 @@ function normalizeCritical(raw) {
 
 /**
  * Parsea un buffer de CSV o Excel (Planificacion Base).
- * Espera columnas: ID | Día | Hora | Proveedor | Toneladas | Crítico
+ * Espera columnas: Nº viaje | Día | Hora | Proveedor | Toneladas | Crítico | Tolva
+ * El número de viaje (matrícula) es una cadena alfanumérica obligatoria.
  * Devuelve { trips: Array, errors: Array }
  */
 export function parseFile(buffer, filename) {
@@ -59,7 +60,7 @@ export function parseFile(buffer, filename) {
 
   const header = rows[0].map((h) => String(h).trim().toLowerCase());
   const colMap = {
-    id: header.findIndex((h) => h === 'id' || h === 'numero' || h === 'num'),
+    id: header.findIndex((h) => h === 'id' || h === 'numero' || h === 'núm' || h === 'num' || h === 'nº viaje' || h === 'n viaje' || h === 'matricula' || h === 'matrícula' || h.includes('viaje')),
     day: header.findIndex((h) => h.includes('dia') || h.includes('día') || h === 'day'),
     time: header.findIndex((h) => h.includes('hora') || h === 'time'),
     supplier: header.findIndex((h) => h.includes('proveedor') || h.includes('supplier')),
@@ -68,19 +69,19 @@ export function parseFile(buffer, filename) {
     tolva: header.findIndex((h) => h.includes('tolva') || h === 'hopper'),
   };
 
-  if (colMap.day < 0 || colMap.time < 0 || colMap.supplier < 0 || colMap.tons < 0) {
-    return { trips: [], errors: [`No se encontraron las columnas necesarias. Cabecera detectada: ${JSON.stringify(rows[0])}`] };
+  if (colMap.day < 0 || colMap.time < 0 || colMap.supplier < 0 || colMap.tons < 0 || colMap.id < 0) {
+    return { trips: [], errors: [`No se encontraron las columnas necesarias (se requieren Nº viaje, Día, Hora, Proveedor, Toneladas). Cabecera detectada: ${JSON.stringify(rows[0])}`] };
   }
 
   const trips = [];
   const errors = [];
+  const seenNumbers = new Set();
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 1;
 
-    const rawId = colMap.id >= 0 ? row[colMap.id] : i;
-    const tripNumber = Number(rawId) || i;
+    const tripNumber = String(row[colMap.id] ?? '').trim();
     const day = normalizeDay(row[colMap.day]);
     const time = normalizeTime(row[colMap.time]);
     const supplier = String(row[colMap.supplier] ?? '').trim();
@@ -88,11 +89,14 @@ export function parseFile(buffer, filename) {
     const tons = typeof rawTons === 'number' ? rawTons : Number(String(rawTons).replace(',', '.'));
     const isCritical = colMap.critical >= 0 ? normalizeCritical(row[colMap.critical]) : false;
 
+    if (!tripNumber) { errors.push(`Fila ${rowNum}: nº de viaje (matrícula) vacío`); continue; }
+    if (seenNumbers.has(tripNumber)) { errors.push(`Fila ${rowNum}: nº de viaje duplicado "${tripNumber}" en el archivo`); continue; }
     if (!day) { errors.push(`Fila ${rowNum}: día inválido "${row[colMap.day]}"`); continue; }
     if (!time) { errors.push(`Fila ${rowNum}: hora inválida "${row[colMap.time]}"`); continue; }
     if (!supplier) { errors.push(`Fila ${rowNum}: proveedor vacío`); continue; }
     if (Number.isNaN(tons) || tons <= 0) { errors.push(`Fila ${rowNum}: toneladas inválidas "${rawTons}"`); continue; }
 
+    seenNumbers.add(tripNumber);
     const tolva = colMap.tolva >= 0 ? row[colMap.tolva] : null;
     trips.push({ trip_number: tripNumber, day, scheduled_time: time, supplier, tons, is_critical: isCritical, tolva });
   }
