@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import { resolvePlanId, DAY_ORDER_SQL } from '../db/helpers.js';
 import { notifyWebhooks } from '../services/webhookEmitter.js';
+import { recalcPlan } from '../services/recalc.js';
 
 const router = Router();
 
@@ -59,6 +60,7 @@ router.post('/extra', async (req, res) => {
     );
     const trip = r.rows[0];
     await notifyWebhooks('trip_extra_added', trip);
+    await recalcPlan(planId, { trigger: 'trip_create' });
     res.status(201).json(trip);
   } catch (err) {
     console.error(err);
@@ -91,6 +93,7 @@ router.put('/:id', async (req, res) => {
     if (r.rows.length === 0) return res.status(404).json({ error: 'Viaje no encontrado' });
     const updated = r.rows[0];
     await notifyWebhooks('trip_updated', updated);
+    if (updated.plan_id) await recalcPlan(updated.plan_id, { trigger: 'trip_update' });
     res.json(updated);
   } catch (err) {
     console.error(err);
@@ -123,66 +126,8 @@ router.post('/:id/divert', async (req, res) => {
 
     await pool.query('UPDATE trips SET tolva_id = $1 WHERE id = $2', [targetTolva, trip.id]);
 
-    const { run } = await import('../engine/simulator.js');
-    const affectedTolvaIds = [trip.tolva_id, targetTolva];
-
-    for (const tid of affectedTolvaIds) {
-      const tolvaRow = await pool.query('SELECT * FROM tolvas WHERE id = $1', [tid]);
-      if (tolvaRow.rows.length === 0) continue;
-      const tolva = tolvaRow.rows[0];
-
-      const tripsRows = await pool.query(
-        `SELECT id, trip_number, day, scheduled_time, supplier, tons, is_critical, is_extra
-         FROM trips WHERE plan_id = $1 AND tolva_id = $2 ORDER BY ${DAY_ORDER_SQL}, scheduled_time`,
-        [trip.plan_id, tid]
-      );
-      const tolvaTrips = tripsRows.rows.map((t) => ({
-        ...t,
-        scheduled_time: t.scheduled_time != null ? String(t.scheduled_time).slice(0, 5) : '00:00',
-      }));
-
-      await pool.query('DELETE FROM sequence_results WHERE plan_id = $1 AND tolva_id = $2', [trip.plan_id, tid]);
-      await pool.query('DELETE FROM silo_simulation WHERE plan_id = $1 AND tolva_id = $2', [trip.plan_id, tid]);
-
-      if (tolvaTrips.length === 0) continue;
-      const stoppagesRows = await pool.query(
-        'SELECT dia, hora_inicio, hora_fin FROM stoppages WHERE plan_id = $1 AND tolva_id = $2',
-        [trip.plan_id, tid]
-      );
-      const boxRows = await pool.query(
-        'SELECT total_tons, periodo_horas, dia, hora_inicio FROM box_entries WHERE plan_id = $1 AND tolva_id = $2',
-        [trip.plan_id, tid]
-      );
-      const { sequence, simulation } = run(tolva, tolvaTrips, stoppagesRows.rows, boxRows.rows);
-
-      if (sequence.length > 0) {
-        const seqValues = sequence.map((_, i) => {
-          const o = i * 7;
-          return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7})`;
-        }).join(', ');
-        const seqParams = sequence.flatMap((r) => [trip.plan_id, r.trip_id, r.final_day, r.final_time, r.delay_capacity_hours, !!r.retained_for_critical, tid]);
-        await pool.query(
-          `INSERT INTO sequence_results (plan_id, trip_id, final_day, final_time, delay_capacity_hours, retained_for_critical, tolva_id) VALUES ${seqValues}`,
-          seqParams
-        );
-      }
-
-      if (simulation.length > 0) {
-        const batchSize = 100;
-        for (let b = 0; b < simulation.length; b += batchSize) {
-          const batch = simulation.slice(b, b + batchSize);
-          const simValues = batch.map((_, i) => {
-            const o = i * 10;
-            return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10})`;
-          }).join(', ');
-          const simParams = batch.flatMap((r) => [trip.plan_id, r.step_index, r.day, r.time, r.entries_tons, r.box_entry_tons || 0, r.consumption_tons, r.silo_level, r.is_stoppage, tid]);
-          await pool.query(
-            `INSERT INTO silo_simulation (plan_id, step_index, day, time, entries_tons, box_entry_tons, consumption_tons, silo_level, is_stoppage, tolva_id) VALUES ${simValues}`,
-            simParams
-          );
-        }
-      }
-    }
+    // Recálculo estándar de todo el plan (cubre ambas tolvas afectadas).
+    await recalcPlan(trip.plan_id, { trigger: 'divert' });
 
     await notifyWebhooks('trip_diverted', {
       trip_id: trip.id,
@@ -208,8 +153,9 @@ router.post('/:id/divert', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const r = await pool.query('DELETE FROM trips WHERE id = $1 RETURNING id', [req.params.id]);
+    const r = await pool.query('DELETE FROM trips WHERE id = $1 RETURNING id, plan_id', [req.params.id]);
     if (r.rows.length === 0) return res.status(404).json({ error: 'Viaje no encontrado' });
+    if (r.rows[0].plan_id) await recalcPlan(r.rows[0].plan_id, { trigger: 'trip_delete' });
     res.status(204).send();
   } catch (err) {
     console.error(err);

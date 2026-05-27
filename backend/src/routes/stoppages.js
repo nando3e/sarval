@@ -2,6 +2,7 @@ import { Router } from 'express';
 import pool from '../db/pool.js';
 import { resolvePlanId } from '../db/helpers.js';
 import { notifyWebhooks } from '../services/webhookEmitter.js';
+import { recalcPlan } from '../services/recalc.js';
 
 const router = Router();
 
@@ -42,6 +43,7 @@ router.post('/', async (req, res) => {
     );
     const stoppage = r.rows[0];
     await notifyWebhooks('stoppage_created', stoppage);
+    if (stoppage.plan_id) await recalcPlan(stoppage.plan_id, { trigger: 'stoppage_create' });
     res.status(201).json(stoppage);
   } catch (err) {
     console.error(err);
@@ -67,7 +69,9 @@ router.put('/:id', async (req, res) => {
       values
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Parada no encontrada' });
-    res.json(r.rows[0]);
+    const updated = r.rows[0];
+    if (updated.plan_id) await recalcPlan(updated.plan_id, { trigger: 'stoppage_update' });
+    res.json(updated);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al actualizar parada' });
@@ -76,8 +80,9 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const r = await pool.query('DELETE FROM stoppages WHERE id = $1 RETURNING id', [req.params.id]);
+    const r = await pool.query('DELETE FROM stoppages WHERE id = $1 RETURNING id, plan_id', [req.params.id]);
     if (r.rows.length === 0) return res.status(404).json({ error: 'Parada no encontrada' });
+    if (r.rows[0].plan_id) await recalcPlan(r.rows[0].plan_id, { trigger: 'stoppage_delete' });
     res.status(204).send();
   } catch (err) {
     console.error(err);

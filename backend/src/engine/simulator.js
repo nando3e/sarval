@@ -142,10 +142,15 @@ function buildStoppageSteps(stoppages, STEPS_H, PASO) {
 /**
  * Convierte las entradas de boxes en un mapa stepIndex → tons que se
  * añaden gradualmente. Las toneladas totales se reparten linealmente
- * entre hora_inicio y hora_inicio + periodo_horas.
+ * entre hora_inicio y hora_inicio + periodo_horas, **pero saltando los
+ * pasos que caen dentro de una parada** (la entrega se pospone hacia
+ * adelante hasta completar el total previsto). Esto refleja la realidad:
+ * durante una parada, ninguna actividad ocurre en la tolva (ni boxes,
+ * ni camiones, ni consumo).
  */
-function buildBoxEntryMap(boxEntries, STEPS_H, PASO) {
+function buildBoxEntryMap(boxEntries, STEPS_H, PASO, stoppedSteps) {
   const map = {};
+  const WEEK_END = 6 * 24 * STEPS_H; // límite duro de la semana operativa
   for (const b of boxEntries) {
     const tons = toNumber(b.total_tons);
     const periodo = toNumber(b.periodo_horas) || 24;
@@ -155,10 +160,53 @@ function buildBoxEntryMap(boxEntries, STEPS_H, PASO) {
     const base = dy.dIdx * 24 * STEPS_H + from.step;
     const totalSteps = Math.max(1, Math.round(periodo * STEPS_H));
     const tonsPerStep = tons / totalSteps;
-    for (let i = 0; i < totalSteps; i++) {
-      const idx = base + i;
-      map[idx] = (map[idx] || 0) + tonsPerStep;
+    let delivered = 0;
+    let offset = 0;
+    while (delivered < totalSteps) {
+      const idx = base + offset;
+      if (idx >= WEEK_END) break;
+      if (!stoppedSteps.has(idx)) {
+        map[idx] = (map[idx] || 0) + tonsPerStep;
+        delivered++;
+      }
+      offset++;
     }
+  }
+  return map;
+}
+
+/**
+ * Convierte las franjas de productividad en un mapa stepIndex → caudal (t/h).
+ * En solapamientos gana la franja creada más tarde (mayor id). Los pasos no
+ * cubiertos no aparecen en el mapa: el motor usará el consumo base de la tolva.
+ */
+function buildRateMap(periods, STEPS_H, PASO) {
+  const map = {};
+  const sorted = [...periods].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+  for (const p of sorted) {
+    const dy = coerceDay(p.dia);
+    const from = coerceTimeToStep(p.hora_inicio, STEPS_H, PASO);
+    const to = coerceTimeToStep(p.hora_fin, STEPS_H, PASO);
+    const base = dy.dIdx * 24 * STEPS_H;
+    const rate = toNumber(p.consumo_tn_h);
+    for (let st = base + from.step; st < base + to.step; st++) {
+      map[st] = rate;
+    }
+  }
+  return map;
+}
+
+/**
+ * Convierte las lecturas manuales de nivel en un mapa stepIndex → nivel_tn.
+ * Cada lectura "reancla" el nivel del silo en ese paso (sustituye el estimado).
+ */
+function buildReadingMap(readings, STEPS_H, PASO) {
+  const map = {};
+  for (const r of readings) {
+    const dy = coerceDay(r.dia);
+    const tm = coerceTimeToStep(r.hora, STEPS_H, PASO);
+    const step = dy.dIdx * 24 * STEPS_H + tm.step;
+    map[step] = toNumber(r.nivel_tn);
   }
   return map;
 }
@@ -169,9 +217,11 @@ function buildBoxEntryMap(boxEntries, STEPS_H, PASO) {
  * @param {Array} trips - Viajes filtrados por plan_id y tolva_id
  * @param {Array} [stoppages=[]] - Paradas programadas para esta tolva
  * @param {Array} [boxEntries=[]] - Entradas graduales de boxes
+ * @param {Array} [readings=[]] - Lecturas manuales de nivel (reanclan la simulación)
+ * @param {Array} [productivityPeriods=[]] - Franjas de caudal que sustituyen al consumo base
  * @returns {{ sequence: Array, simulation: Array }}
  */
-export function run(params, trips, stoppages = [], boxEntries = []) {
+export function run(params, trips, stoppages = [], boxEntries = [], readings = [], productivityPeriods = []) {
   const CAP = toNumber(params.capacidad_tn ?? params.Capacidad_silo_tn) || 40;
   const CONS_H = toNumber(params.consumo_tn_h ?? params.Consumo_tn_h) || 12;
   const NIVEL0 = toNumber(params.nivel_inicial_tn ?? params.Nivel_inicial_tn) || 20;
@@ -184,7 +234,11 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
 
   const trucks = buildTrucks(trips, STEPS_H, PASO);
   const stoppedSteps = buildStoppageSteps(stoppages, STEPS_H, PASO);
-  const boxMap = buildBoxEntryMap(boxEntries, STEPS_H, PASO);
+  const boxMap = buildBoxEntryMap(boxEntries, STEPS_H, PASO, stoppedSteps);
+  const readingMap = buildReadingMap(readings, STEPS_H, PASO);
+  const rateMap = buildRateMap(productivityPeriods, STEPS_H, PASO);
+  // Caudal (t/h) efectivo en un paso: franja si existe, si no el consumo base.
+  const rateAt = (t) => (rateMap[t] != null ? rateMap[t] : CONS_H);
 
   let level = NIVEL0;
   const qC = [];
@@ -194,7 +248,18 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
   let pos = 0;
 
   for (let t = START(); t <= END(); t++) {
-    // Entradas graduales de boxes (afectan nivel pero NO se mezclan en entries)
+    // Re-anclaje: si hay una lectura manual en este paso, el nivel real
+    // sustituye al estimado ANTES de procesar entradas/consumo. Esto afecta
+    // al hueco disponible y por tanto a las decisiones de descarga (la
+    // secuencia se recalcula desde aquí en adelante).
+    if (readingMap[t] != null) {
+      level = Math.max(0, Math.min(CAP, readingMap[t]));
+    }
+
+    const isStopped = stoppedSteps.has(t);
+
+    // Entradas graduales de boxes: ya excluidas de los pasos con parada
+    // al construir el mapa (se posponen automáticamente).
     const boxTons = boxMap[t] || 0;
     if (boxTons > 0) {
       level = Math.min(CAP, level + boxTons);
@@ -206,50 +271,55 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
     }
     let space = CAP - level;
 
-    // 1) Descargar críticos que caben
-    let moved = true;
-    while (moved && qC.length > 0) {
-      moved = false;
-      if (qC[0].tn <= space) {
-        const tr = qC.shift();
-        level += tr.tn;
-        space = CAP - level;
-        finalIdx[tr.id] = t;
-        entries[t] = (entries[t] || 0) + tr.tn;
-        moved = true;
-      } else break;
-    }
-
-    // 2) No-críticos: solo si no hay críticos esperando en cola
-    //    y si no bloquean a un próximo crítico futuro
-    const critWaiting = qC.length > 0;
-    if (!critWaiting) {
-      const nextCrit = findNextCriticalArrival(trucks, pos);
-      moved = true;
-      while (moved && qN.length > 0 && space > 0) {
+    // Durante una parada no hay ninguna actividad: ni descargas ni consumo.
+    // Los camiones encolados esperan. Los no-críticos sin crítico delante
+    // tampoco se evalúan (no se marcan retenidos por bloqueo de crítico
+    // durante una parada).
+    if (!isStopped) {
+      // 1) Descargar críticos que caben
+      let moved = true;
+      while (moved && qC.length > 0) {
         moved = false;
-        const candidate = qN[0];
-        if (candidate.tn > space) break;
-
-        if (wouldBlockCritical(level, candidate.tn, t, nextCrit, CAP, CONS_STEP)) {
-          candidate.retained = true;
-          break;
-        }
-
-        const tr = qN.shift();
-        level += tr.tn;
-        space = CAP - level;
-        finalIdx[tr.id] = t;
-        entries[t] = (entries[t] || 0) + tr.tn;
-        moved = true;
+        if (qC[0].tn <= space) {
+          const tr = qC.shift();
+          level += tr.tn;
+          space = CAP - level;
+          finalIdx[tr.id] = t;
+          entries[t] = (entries[t] || 0) + tr.tn;
+          moved = true;
+        } else break;
       }
-    } else {
-      // Si hay un crítico esperando, marcamos los no-críticos como retenidos
-      for (const nc of qN) nc.retained = true;
+
+      // 2) No-críticos: solo si no hay críticos esperando en cola
+      //    y si no bloquean a un próximo crítico futuro
+      const critWaiting = qC.length > 0;
+      if (!critWaiting) {
+        const nextCrit = findNextCriticalArrival(trucks, pos);
+        moved = true;
+        while (moved && qN.length > 0 && space > 0) {
+          moved = false;
+          const candidate = qN[0];
+          if (candidate.tn > space) break;
+
+          if (wouldBlockCritical(level, candidate.tn, t, nextCrit, CAP, CONS_STEP)) {
+            candidate.retained = true;
+            break;
+          }
+
+          const tr = qN.shift();
+          level += tr.tn;
+          space = CAP - level;
+          finalIdx[tr.id] = t;
+          entries[t] = (entries[t] || 0) + tr.tn;
+          moved = true;
+        }
+      } else {
+        // Si hay un crítico esperando, marcamos los no-críticos como retenidos
+        for (const nc of qN) nc.retained = true;
+      }
     }
 
-    const isStopped = stoppedSteps.has(t);
-    const cons = isStopped ? 0 : Math.min(CONS_STEP, level);
+    const cons = isStopped ? 0 : Math.min(rateAt(t) / STEPS_H, level);
     level -= cons;
   }
 
@@ -287,6 +357,11 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
   let lvl2 = NIVEL0;
   const simulation = [];
   for (let t = START(); t <= END(); t++) {
+    // Mismo re-anclaje que en el bucle de decisión, para que la curva
+    // dibujada coincida con el nivel real medido.
+    if (readingMap[t] != null) {
+      lvl2 = Math.max(0, Math.min(CAP, readingMap[t]));
+    }
     const d = Math.floor(t / (24 * STEPS_H));
     const hTxt = stepToHHMM(t, STEPS_H, PASO);
     const truckEnt = entries[t] || 0;
@@ -295,7 +370,7 @@ export function run(params, trips, stoppages = [], boxEntries = []) {
     const isStopped = stoppedSteps.has(t);
     lvl2 = Math.min(CAP, lvl2 + totalEnt);
     const levelAfterEntry = lvl2;
-    const cons = isStopped ? 0 : Math.min(CONS_STEP, lvl2);
+    const cons = isStopped ? 0 : Math.min(rateAt(t) / STEPS_H, lvl2);
     lvl2 -= cons;
     simulation.push({
       step_index: t,

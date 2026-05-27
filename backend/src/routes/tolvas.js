@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
+import { resolvePlanId } from '../db/helpers.js';
+import { recalcPlan } from '../services/recalc.js';
 
 const router = Router();
 
@@ -87,6 +89,13 @@ router.put('/:id', async (req, res) => {
       values
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Tolva no encontrada' });
+    // Los parámetros de la tolva (capacidad, consumo, paso, nivel inicial)
+    // afectan a la simulación: recalcula el plan que el cliente esté viendo.
+    const affectsSim = ['capacidad_tn', 'consumo_tn_h', 'nivel_inicial_tn', 'paso_minutos', 'activa'].some((k) => req.body?.[k] !== undefined);
+    if (affectsSim) {
+      const planId = await resolvePlanId(req);
+      if (planId) await recalcPlan(planId, { trigger: 'tolva_params' });
+    }
     res.json(r.rows[0]);
   } catch (err) {
     console.error(err);

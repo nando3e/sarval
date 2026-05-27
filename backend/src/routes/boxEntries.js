@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { resolvePlanId } from '../db/helpers.js';
+import { recalcPlan } from '../services/recalc.js';
 
 const router = Router();
 
@@ -48,7 +49,9 @@ router.post('/', async (req, res) => {
         descripcion || '',
       ]
     );
-    res.status(201).json(r.rows[0]);
+    const created = r.rows[0];
+    if (created.plan_id) await recalcPlan(created.plan_id, { trigger: 'box_create' });
+    res.status(201).json(created);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al crear entrada de boxes' });
@@ -74,7 +77,9 @@ router.put('/:id', async (req, res) => {
       values
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Entrada no encontrada' });
-    res.json(r.rows[0]);
+    const updated = r.rows[0];
+    if (updated.plan_id) await recalcPlan(updated.plan_id, { trigger: 'box_update' });
+    res.json(updated);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al actualizar entrada de boxes' });
@@ -83,8 +88,9 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const r = await pool.query('DELETE FROM box_entries WHERE id = $1 RETURNING id', [req.params.id]);
+    const r = await pool.query('DELETE FROM box_entries WHERE id = $1 RETURNING id, plan_id', [req.params.id]);
     if (r.rows.length === 0) return res.status(404).json({ error: 'Entrada no encontrada' });
+    if (r.rows[0].plan_id) await recalcPlan(r.rows[0].plan_id, { trigger: 'box_delete' });
     res.status(204).send();
   } catch (err) {
     console.error(err);
