@@ -11,6 +11,7 @@ const navItems = [
   { to: '/viajes-extras', label: 'Viajes extras' },
   { to: '/secuenciacion', label: 'Secuenciación' },
   { to: '/tolvas', label: 'Tolvas' },
+  { to: '/productividad', label: 'Productividad' },
   { to: '/paradas', label: 'Paradas' },
   { to: '/boxes', label: 'Boxes' },
   { to: '/personal-planta', label: 'Personal planta' },

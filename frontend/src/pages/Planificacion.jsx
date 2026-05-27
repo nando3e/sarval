@@ -214,7 +214,7 @@ V-2026-0003;Martes;08:00;PROVEEDOR A;Trigo;20;;${tolvas[0]?.nombre || 'Tolva 1'}
                     <td>{t.supplier}</td>
                     <td>{t.producto || '—'}</td>
                     <td>{t.tons}</td>
-                    <td>{t.is_critical ? 'Sí' : 'No'}</td>
+                    <td>{t.is_critical ? <span className={styles.chipCritical}>Sí</span> : ''}</td>
                     <td className={styles.actions}>
                       <button type="button" className={styles.btnSmall} onClick={() => startEdit(t)}>Editar</button>
                       <button type="button" className={styles.btnDanger} onClick={() => deleteTrip(t.id)}>Borrar</button>

@@ -4,11 +4,29 @@ import { usePlan } from '../context/PlanContext';
 import { useTolvas } from '../context/TolvaContext';
 import {
   ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceLine, ReferenceArea, ResponsiveContainer,
+  ReferenceLine, ReferenceArea, ReferenceDot, ResponsiveContainer,
 } from 'recharts';
 import styles from './Dashboard.module.css';
 
 const DAY_TICKS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAY_FROM_JS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+function roundToPaso(date, paso) {
+  const mins = date.getHours() * 60 + date.getMinutes();
+  const rounded = Math.round(mins / paso) * paso;
+  const hh = Math.floor(rounded / 60) % 24;
+  const mm = rounded % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function readingStep(dia, hora, paso) {
+  const STEPS_H = 60 / paso;
+  const dayIdx = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].indexOf(dia);
+  if (dayIdx < 0) return null;
+  const [hh, mm] = String(hora).slice(0, 5).split(':').map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return dayIdx * 24 * STEPS_H + hh * STEPS_H + Math.round(mm / paso);
+}
 
 function LevelTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
@@ -23,23 +41,55 @@ function LevelTooltip({ active, payload }) {
   );
 }
 
-function FlowTooltip({ active, payload }) {
+function FlowTooltip({ active, payload, tripsByStep }) {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload;
   if (!d) return null;
   const truck = d.truck_entry_tons || 0;
   const box = d.box_entry_tons || 0;
   const cons = d.consumption_tons || 0;
+  const trips = tripsByStep?.get?.(d.step_index) || [];
   return (
     <div className={styles.tooltip}>
       <p className={styles.tooltipTitle}>{d.label}</p>
-      {truck > 0 && <p style={{ color: '#22c55e', margin: '0.1rem 0' }}>Entrada camión: <strong>+{truck.toFixed(1)} tn</strong></p>}
+      {trips.length > 0 ? (
+        trips.map((t, i) => (
+          <p key={i} style={{ color: '#22c55e', margin: '0.1rem 0' }}>
+            {t.trip_number || '[indefinido]'}: <strong>+{Number(t.tons).toFixed(1)} tn</strong>
+            {t.critico && <span style={{ marginLeft: '0.4rem', padding: '0 0.3rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 700, background: 'rgba(34,197,94,0.25)', border: '1px solid rgba(34,197,94,0.5)' }}>CR</span>}
+          </p>
+        ))
+      ) : (
+        truck > 0 && <p style={{ color: '#22c55e', margin: '0.1rem 0' }}>Entrada camión: <strong>+{truck.toFixed(1)} tn</strong></p>
+      )}
       {box > 0 && <p style={{ color: '#f59e0b', margin: '0.1rem 0' }}>Entrada boxes: <strong>+{box.toFixed(2)} tn</strong></p>}
       {cons > 0 && <p style={{ color: '#ef4444', margin: '0.1rem 0' }}>Consumo: <strong>-{cons.toFixed(1)} tn</strong></p>}
-      {truck === 0 && box === 0 && cons === 0 && <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.8rem' }}>Sin flujo</p>}
+      {trips.length === 0 && truck === 0 && box === 0 && cons === 0 && <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.8rem' }}>Sin flujo</p>}
       {d.is_stoppage && <p style={{ color: '#94a3b8', fontSize: '0.8rem', margin: '0.2rem 0 0' }}>Parada activa</p>}
     </div>
   );
+}
+
+const DAY_TO_IDX = { Lunes: 0, Martes: 1, Miércoles: 2, Jueves: 3, Viernes: 4, Sábado: 5 };
+
+function tripsByStepFromSequence(sequence, paso) {
+  const STEPS_H = 60 / (paso || 30);
+  const map = new Map();
+  for (const t of sequence || []) {
+    const dayIdx = DAY_TO_IDX[t.dia_final];
+    if (dayIdx == null || !t.hora_final) continue;
+    const [hh, mm] = String(t.hora_final).slice(0, 5).split(':').map(Number);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) continue;
+    const step = dayIdx * 24 * STEPS_H + hh * STEPS_H + Math.round(mm / (paso || 30));
+    const entry = {
+      trip_number: t.trip_number,
+      tons: Number(t.tons) || 0,
+      critico: !!t.critico,
+    };
+    if (!map.has(step)) map.set(step, []);
+    map.get(step).push(entry);
+  }
+  return map;
 }
 
 export default function Dashboard() {
@@ -47,20 +97,29 @@ export default function Dashboard() {
   const { tolvas } = useTolvas();
   const [data, setData] = useState(null);
   const [chartData, setChartData] = useState(null);
+  const [sequence, setSequence] = useState([]);
+  const [readings, setReadings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dayFilter, setDayFilter] = useState('all');
   const [selectedTolva, setSelectedTolva] = useState('');
+  const [showReadingForm, setShowReadingForm] = useState(false);
+  const [readingForm, setReadingForm] = useState({ dia: 'Lunes', hora: '08:00', nivel_tn: '', nota: '' });
+  const [savingReading, setSavingReading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
       api(`/api/dashboard${selectedTolva ? `?tolva_id=${selectedTolva}` : ''}`),
       api(`/api/dashboard/silo-chart${selectedTolva ? `?tolva_id=${selectedTolva}` : ''}`).catch(() => ({ series: [], week: null, tolva: null })),
+      api(`/api/planning/sequence${selectedTolva ? `?tolva_id=${selectedTolva}` : ''}`).catch(() => []),
+      api(`/api/level-readings${selectedTolva ? `?tolva_id=${selectedTolva}` : ''}`).catch(() => []),
     ])
-      .then(([dash, chart]) => {
+      .then(([dash, chart, seq, reads]) => {
         setData(dash);
         setChartData(chart);
+        setSequence(seq);
+        setReadings(reads);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -91,6 +150,63 @@ export default function Dashboard() {
     truck_entry_tons: s.truck_entry_tons != null ? s.truck_entry_tons : Math.max(0, (s.entries_tons || 0) - (s.box_entry_tons || 0)),
     consumption_neg: -Math.abs(s.consumption_tons || 0),
   }));
+  // Mapa step_index -> [{trip_number, tons}] para mostrar los viajes concretos
+  // en el tooltip del panel de flujos. Usamos el paso_minutos de la tolva
+  // (tolvas context tiene paso_minutos; chartTolva no lo trae).
+  const currentTolvaConfig = chartTolva ? tolvas.find((t) => t.id === chartTolva.id) : null;
+  const paso = currentTolvaConfig?.paso_minutos || 30;
+  const tripsByStep = tripsByStepFromSequence(sequence, paso);
+
+  // Marcadores de lecturas manuales de nivel sobre el gráfico de nivel.
+  const readingMarkers = readings
+    .filter((r) => !chartTolva || r.tolva_id === chartTolva.id)
+    .filter((r) => dayFilter === 'all' || r.dia === dayFilter)
+    .map((r) => ({ id: r.id, step: readingStep(r.dia, r.hora, paso), nivel: Number(r.nivel_tn) }))
+    .filter((m) => m.step != null);
+
+  const openReadingForm = () => {
+    setReadingForm({
+      dia: DAY_FROM_JS[new Date().getDay()] || 'Lunes',
+      hora: roundToPaso(new Date(), paso),
+      nivel_tn: '',
+      nota: '',
+    });
+    setShowReadingForm(true);
+  };
+
+  const saveReading = async () => {
+    if (!chartTolva?.id || readingForm.nivel_tn === '') return;
+    setSavingReading(true);
+    setError('');
+    try {
+      await api('/api/level-readings', {
+        method: 'POST',
+        body: JSON.stringify({
+          tolva_id: chartTolva.id,
+          dia: readingForm.dia,
+          hora: readingForm.hora,
+          nivel_tn: Number(readingForm.nivel_tn),
+          nota: readingForm.nota,
+        }),
+      });
+      setShowReadingForm(false);
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingReading(false);
+    }
+  };
+
+  const deleteReading = async (id) => {
+    setError('');
+    try {
+      await api(`/api/level-readings/${id}`, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
   // Serie en dientes de sierra para el panel de nivel: por cada paso con entrada,
   // insertamos un punto "pre-entrada" en step_index - 0.0001 con el nivel justo
   // antes de la descarga. Así el salto vertical mide exactamente las tn entradas.
@@ -123,11 +239,6 @@ export default function Dashboard() {
   }
 
   const nivelAlerta = chartTolva?.nivel_minimo_alerta_tn || null;
-  const flowMax = Math.max(
-    1,
-    ...filteredSeries.map((s) => Math.max(s.truck_entry_tons || 0, s.box_entry_tons || 0)),
-    ...filteredSeries.map((s) => Math.abs(s.consumption_neg || 0))
-  );
 
   const yDomainMaxFn = (dataMax) => Math.ceil(Math.max(dataMax, capacity) * 1.1);
   const xDomain =
@@ -223,8 +334,43 @@ export default function Dashboard() {
             {activeDays.map((d) => (
               <button key={d} type="button" className={dayFilter === d ? styles.dayBtnActive : styles.dayBtn} onClick={() => setDayFilter(d)}>{d}</button>
             ))}
+            <button type="button" className={styles.dayBtn} onClick={openReadingForm} title="Registrar el nivel real medido en el silo. Reancla la simulación y recalcula la secuencia.">
+              + Registrar nivel real
+            </button>
           </div>
         </div>
+
+        {showReadingForm && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '0.75rem', margin: '0.5rem 0 1rem', padding: '0.85rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', width: '100%' }}>
+              Nivel real medido en <strong>{chartTolva?.nombre || `Tolva ${chartTolva?.numero}`}</strong>. La hora se redondea al paso de {paso} min. Al guardar se reancla la simulación y se recalcula la secuencia.
+            </span>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Día
+              <select value={readingForm.dia} onChange={(e) => setReadingForm((f) => ({ ...f, dia: e.target.value }))} style={{ padding: '0.4rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}>
+                {DAY_TICKS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Hora
+              <input type="time" value={readingForm.hora} step={paso * 60} onChange={(e) => setReadingForm((f) => ({ ...f, hora: e.target.value }))} style={{ padding: '0.4rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Nivel (tn)
+              <input type="number" min="0" step="0.1" value={readingForm.nivel_tn} onChange={(e) => setReadingForm((f) => ({ ...f, nivel_tn: e.target.value }))} style={{ width: 90, padding: '0.4rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--text-muted)', flex: 1, minWidth: 140 }}>
+              Nota (opcional)
+              <input value={readingForm.nota} onChange={(e) => setReadingForm((f) => ({ ...f, nota: e.target.value }))} style={{ padding: '0.4rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
+            </label>
+            <button type="button" disabled={savingReading || readingForm.nivel_tn === ''} onClick={saveReading} style={{ padding: '0.5rem 1rem', borderRadius: 6, border: 'none', background: 'var(--accent)', color: 'white', fontWeight: 500, cursor: 'pointer' }}>
+              {savingReading ? 'Guardando…' : 'Guardar y recalcular'}
+            </button>
+            <button type="button" onClick={() => setShowReadingForm(false)} style={{ padding: '0.5rem 0.75rem', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' }}>
+              Cancelar
+            </button>
+          </div>
+        )}
 
         {noData ? (
           <p className={styles.muted}>Ejecuta un recálculo en Secuenciación para ver el gráfico.</p>
@@ -238,11 +384,12 @@ export default function Dashboard() {
               <span className={styles.legendItem}><span className={styles.dot} style={{ background: '#f59e0b' }} />Boxes</span>
               <span className={styles.legendItem}><span className={styles.dot} style={{ background: '#ef4444' }} />Consumo</span>
               {stoppageBands.length > 0 && <span className={styles.legendItem}><span className={styles.dot} style={{ background: '#94a3b8', opacity: 0.4 }} />Parada</span>}
+              {readingMarkers.length > 0 && <span className={styles.legendItem}><span className={styles.dot} style={{ background: '#a855f7' }} />Lectura real</span>}
             </div>
 
             <div className={styles.chartPanelStack}>
               <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={levelSawtoothSeries} syncId="tolva-sync" margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                <ComposedChart data={levelSawtoothSeries} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="step_index"
@@ -253,7 +400,7 @@ export default function Dashboard() {
                     tick={false}
                     height={0}
                   />
-                  <YAxis domain={[0, yDomainMaxFn]} allowDataOverflow={false} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}tn`} width={48} />
+                  <YAxis domain={[0, yDomainMaxFn]} allowDataOverflow={false} tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v)}tn`} width={48} />
                   <Tooltip content={<LevelTooltip />} />
                   {stoppageBands.map((b) => (
                     <ReferenceArea key={b.id} x1={b.from} x2={b.to} fill="#94a3b8" fillOpacity={0.18} ifOverflow="extendDomain" />
@@ -270,11 +417,15 @@ export default function Dashboard() {
                     ) : null;
                   })}
                   <Area type="linear" dataKey="silo_level" stroke="var(--accent)" fill="var(--accent)" fillOpacity={0.12} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                  {readingMarkers.map((m) => (
+                    <ReferenceDot key={`read-${m.id}`} x={m.step} y={m.nivel} r={5} fill="#a855f7" stroke="#fff" strokeWidth={1.5} ifOverflow="extendDomain"
+                      label={{ value: `${m.nivel}t`, position: 'top', fontSize: 10, fill: '#a855f7' }} />
+                  ))}
                 </ComposedChart>
               </ResponsiveContainer>
 
               <ResponsiveContainer width="100%" height={170}>
-                <ComposedChart data={filteredSeries} syncId="tolva-sync" margin={{ top: 0, right: 20, left: 10, bottom: 30 }}>
+                <ComposedChart data={filteredSeries} margin={{ top: 0, right: 20, left: 10, bottom: 30 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="step_index"
@@ -292,8 +443,8 @@ export default function Dashboard() {
                     textAnchor="end"
                     height={50}
                   />
-                  <YAxis domain={[-flowMax, flowMax]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}tn`} width={48} />
-                  <Tooltip content={<FlowTooltip />} />
+                  <YAxis domain={[-capacity, capacity]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v)}tn`} width={48} />
+                  <Tooltip content={(props) => <FlowTooltip {...props} tripsByStep={tripsByStep} />} />
                   {stoppageBands.map((b) => (
                     <ReferenceArea key={`f-${b.id}`} x1={b.from} x2={b.to} fill="#94a3b8" fillOpacity={0.18} ifOverflow="extendDomain" />
                   ))}
@@ -304,6 +455,24 @@ export default function Dashboard() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+
+            {readings.filter((r) => !chartTolva || r.tolva_id === chartTolva.id).length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>Lecturas de nivel registradas</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {readings
+                    .filter((r) => !chartTolva || r.tolva_id === chartTolva.id)
+                    .map((r) => (
+                      <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.6rem', borderRadius: 9999, background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.35)', fontSize: '0.8rem' }}>
+                        <span style={{ color: '#a855f7', fontWeight: 600 }}>{r.dia} {String(r.hora).slice(0, 5)}</span>
+                        <strong>{Number(r.nivel_tn).toFixed(1)} tn</strong>
+                        {r.nota ? <span style={{ color: 'var(--text-muted)' }}>· {r.nota}</span> : null}
+                        <button type="button" onClick={() => deleteReading(r.id)} title="Eliminar lectura y recalcular" style={{ border: 'none', background: 'transparent', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }}>✕</button>
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

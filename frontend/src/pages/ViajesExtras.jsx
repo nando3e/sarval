@@ -162,7 +162,7 @@ export default function ViajesExtras() {
                   <td>{t.supplier}</td>
                   <td>{t.producto || '—'}</td>
                   <td>{t.tons}</td>
-                  <td>{t.is_critical ? 'Sí' : 'No'}</td>
+                  <td>{t.is_critical ? <span className={styles.chipCritical}>Sí</span> : ''}</td>
                 </tr>
               ))}
             </tbody>

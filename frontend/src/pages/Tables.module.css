@@ -114,24 +114,77 @@
   white-space: nowrap;
 }
 
-.table tbody tr:hover {
+.table tbody tr:not(.rowDelay):not(.rowRetained):not(.rowDayChange):hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
 .rowDelay {
-  background: rgba(239, 68, 68, 0.08);
+  background: rgba(239, 68, 68, 0.20);
+}
+.rowDelay:hover {
+  background: rgba(239, 68, 68, 0.28);
 }
 
 .rowDayChange {
-  background: rgba(234, 179, 8, 0.08);
+  background: rgba(234, 179, 8, 0.18);
+}
+.rowDayChange:hover {
+  background: rgba(234, 179, 8, 0.26);
 }
 
 .rowRetained {
-  background: rgba(168, 85, 247, 0.08);
+  background: rgba(245, 158, 11, 0.22);
+}
+.rowRetained:hover {
+  background: rgba(245, 158, 11, 0.32);
 }
 
-.rowCritical {
-  font-weight: 700;
+/* Fila en edición: resaltado fuerte por encima de cualquier color de estado. */
+.rowEditing td {
+  background: rgba(59, 130, 246, 0.18) !important;
+  border-top: 2px solid var(--accent) !important;
+  border-bottom: 2px solid var(--accent) !important;
+}
+.rowEditing td:first-child {
+  border-left: 4px solid var(--accent) !important;
+}
+.rowEditing td:last-child {
+  border-right: 4px solid var(--accent) !important;
+}
+.rowEditing:hover td {
+  background: rgba(59, 130, 246, 0.22) !important;
+}
+
+/* Columna Acciones siempre visible aunque haya scroll horizontal, pegada a la derecha. */
+.stickyActions {
+  position: sticky;
+  right: 0;
+  background: var(--surface);
+  box-shadow: -4px 0 8px -4px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+}
+.rowEditing .stickyActions {
+  background: rgba(59, 130, 246, 0.18) !important;
+}
+.rowDelay .stickyActions {
+  background: rgba(239, 68, 68, 0.20);
+}
+.rowRetained .stickyActions {
+  background: rgba(245, 158, 11, 0.22);
+}
+.rowDayChange .stickyActions {
+  background: rgba(234, 179, 8, 0.18);
+}
+
+.chipCritical {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid rgba(34, 197, 94, 0.35);
 }
 
 .inputInline {
