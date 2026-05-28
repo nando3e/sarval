@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { PlanProvider } from './context/PlanContext';
 import { TolvaProvider } from './context/TolvaContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { BrandingProvider } from './context/BrandingContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -26,6 +27,7 @@ function ProtectedRoute({ children }) {
 export default function App() {
   return (
     <ThemeProvider>
+    <BrandingProvider>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route
@@ -56,6 +58,7 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </BrandingProvider>
     </ThemeProvider>
   );
 }

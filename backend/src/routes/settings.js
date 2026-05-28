@@ -78,6 +78,7 @@ router.get('/', async (req, res) => {
     res.json({
       timezone: settings.timezone || 'Europe/Madrid',
       api_base_url: settings.api_base_url || '',
+      anonimizar: settings.anonimizar === 'true',
       timezone_options: EUROPE_TIMEZONES,
       endpoints: API_ENDPOINTS.map((e) => ({ ...e, url: baseUrl.replace(/\/$/, '') + e.path })),
     });
@@ -90,7 +91,7 @@ router.get('/', async (req, res) => {
 // PUT /api/settings
 router.put('/', async (req, res) => {
   try {
-    const { timezone, api_base_url } = req.body || {};
+    const { timezone, api_base_url, anonimizar } = req.body || {};
     if (timezone != null) {
       await pool.query(
         'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
@@ -103,9 +104,19 @@ router.put('/', async (req, res) => {
         ['api_base_url', String(api_base_url)]
       );
     }
+    if (anonimizar !== undefined) {
+      await pool.query(
+        'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2',
+        ['anonimizar', anonimizar ? 'true' : 'false']
+      );
+    }
     const r = await pool.query('SELECT key, value FROM app_settings');
     const settings = Object.fromEntries(r.rows.map((row) => [row.key, row.value]));
-    res.json({ timezone: settings.timezone, api_base_url: settings.api_base_url });
+    res.json({
+      timezone: settings.timezone,
+      api_base_url: settings.api_base_url,
+      anonimizar: settings.anonimizar === 'true',
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Error al guardar configuración' });

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../api';
+import { useBranding } from '../context/BrandingContext';
 import styles from './Login.module.css';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { appName, anonimizar } = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -29,8 +31,8 @@ export default function Login() {
   return (
     <div className={styles.wrap}>
       <div className={styles.card}>
-        <h1 className={styles.title}>SARVAL</h1>
-        <p className={styles.subtitle}>Planificador de descargas</p>
+        <h1 className={styles.title}>{appName}</h1>
+        {!anonimizar && <p className={styles.subtitle}>Planificador de descargas</p>}
         <form onSubmit={handleSubmit} className={styles.form}>
           <input
             type="text"

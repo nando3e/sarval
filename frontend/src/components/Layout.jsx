@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { logout } from '../api';
+import { logout, api } from '../api';
 import { useTheme } from '../context/ThemeContext';
+import { useBranding } from '../context/BrandingContext';
 import WeekSelector from './WeekSelector';
 import styles from './Layout.module.css';
 
@@ -29,6 +30,22 @@ function getInitials(user) {
 export default function Layout() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { appName, anonimizar, setAnonimizar } = useBranding();
+  const [savingAnon, setSavingAnon] = useState(false);
+
+  const handleToggleAnon = async () => {
+    const next = !anonimizar;
+    setSavingAnon(true);
+    setAnonimizar(next);
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify({ anonimizar: next }) });
+    } catch (err) {
+      setAnonimizar(!next);
+      console.error('No se pudo guardar el modo anonimizado:', err);
+    } finally {
+      setSavingAnon(false);
+    }
+  };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -53,7 +70,7 @@ export default function Layout() {
   return (
     <div className={styles.layout}>
       <aside className={styles.sidebar}>
-        <div className={styles.logo}>SARVAL</div>
+        <div className={styles.logo}>{appName}</div>
         <WeekSelector />
         <nav className={styles.nav}>
           {navItems.map(({ to, label }) => (
@@ -103,6 +120,25 @@ export default function Layout() {
                   <span className={`${styles.themeThumb} ${theme === 'light' ? styles.themeThumbOn : ''}`} />
                 </button>
               </div>
+              {user?.role === 'superadmin' && (
+                <>
+                  <div className={styles.userMenuDivider} />
+                  <div className={styles.userMenuRow}>
+                    <span className={styles.userMenuLabel}>
+                      {anonimizar ? '🕶️ Modo demo (anonimizado)' : '🏷️ Modo demo (anonimizado)'}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.themeToggle}
+                      onClick={handleToggleAnon}
+                      disabled={savingAnon}
+                      aria-label="Modo demo anonimizado"
+                    >
+                      <span className={`${styles.themeThumb} ${anonimizar ? styles.themeThumbOn : ''}`} />
+                    </button>
+                  </div>
+                </>
+              )}
               <div className={styles.userMenuDivider} />
               <button type="button" className={styles.userMenuLogout} onClick={handleLogout}>
                 Cerrar sesión

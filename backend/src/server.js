@@ -36,6 +36,19 @@ app.use('/api/docs', docsGuard, swaggerUi.serve, swaggerUi.setup(openapiSpec, {
   swaggerOptions: { persistAuthorization: true },
 }));
 
+// Endpoint publico minimo para que el front pueda saber, antes del login, si
+// debe mostrar la marca SARVAL o ir en modo anonimizado (demo).
+app.get('/api/branding', async (_req, res) => {
+  try {
+    const pool = (await import('./db/pool.js')).default;
+    const r = await pool.query("SELECT value FROM app_settings WHERE key = 'anonimizar' LIMIT 1");
+    res.json({ anonimizar: r.rows[0]?.value === 'true' });
+  } catch (err) {
+    console.error(err);
+    res.json({ anonimizar: false });
+  }
+});
+
 app.use('/api/auth', authRoutes);
 
 // Rutas protegidas
