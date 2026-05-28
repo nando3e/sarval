@@ -1,0 +1,892 @@
+// OpenAPI 3.0 spec de la API SARVAL.
+// Se sirve cruda en GET /api/docs.json y como Swagger UI en GET /api/docs.
+
+const bearerSecurity = [{ bearerAuth: [] }];
+
+const errorResponse = {
+  type: 'object',
+  properties: { error: { type: 'string' } },
+  required: ['error'],
+};
+
+const tripSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer', example: 1234 },
+    plan_id: { type: 'integer', example: 28 },
+    trip_number: { type: 'string', description: 'Matrícula o identificador del viaje (único por plan)', example: '5678ABC' },
+    day: { type: 'string', enum: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'], example: 'Martes' },
+    scheduled_time: { type: 'string', example: '09:30', description: 'HH:MM' },
+    supplier: { type: 'string', example: 'TRANSPORTES X' },
+    producto: { type: 'string', example: 'TRIGO' },
+    tons: { type: 'number', example: 27.5 },
+    is_critical: { type: 'boolean', example: false },
+    is_extra: { type: 'boolean', description: 'true si fue añadido manualmente (no venía del Excel)', example: false },
+    delay_h: { type: 'number', nullable: true, example: 0 },
+    new_time: { type: 'string', nullable: true, example: null },
+    status: { type: 'string', nullable: true, example: 'pendiente' },
+    tolva_id: { type: 'integer', example: 1 },
+    tolva_numero: { type: 'integer', example: 1 },
+    tolva_nombre: { type: 'string', example: 'Tolva 1' },
+  },
+};
+
+const sequenceItemSchema = {
+  type: 'object',
+  description: 'Resultado de la secuenciación (un viaje con su hora final calculada por el motor).',
+  properties: {
+    id: { type: 'integer', description: 'ID del sequence_result' },
+    trip_id: { type: 'integer' },
+    trip_number: { type: 'string', example: '5678ABC' },
+    day: { type: 'string', example: 'Martes' },
+    hora_prevista: { type: 'string', example: '09:30' },
+    supplier: { type: 'string' },
+    producto: { type: 'string' },
+    tons: { type: 'number' },
+    critico: { type: 'boolean' },
+    retraso_h: { type: 'number', nullable: true },
+    nueva_hora: { type: 'string', nullable: true },
+    estado: { type: 'string', nullable: true },
+    viaje_extra: { type: 'boolean' },
+    dia_final: { type: 'string', description: 'Día al que el motor desplazó el viaje', example: 'Martes' },
+    hora_final: { type: 'string', description: 'Hora a la que el motor desplazó el viaje', example: '10:00' },
+    retraso_capacidad_h: { type: 'number', description: 'Horas de retraso aplicadas por falta de capacidad', example: 0.5 },
+    retenido_por_critico: { type: 'boolean', description: 'true si se retuvo para dar paso a un crítico' },
+    tolva_id: { type: 'integer' },
+    tolva_numero: { type: 'integer' },
+    tolva_nombre: { type: 'string' },
+  },
+};
+
+const simulationStepSchema = {
+  type: 'object',
+  description: 'Un paso de la simulación del nivel del silo (resolución = paso_minutos de la tolva).',
+  properties: {
+    step_index: { type: 'integer', example: 0 },
+    day: { type: 'string', example: 'Lunes' },
+    time: { type: 'string', example: '06:00' },
+    entries_tons: { type: 'number', description: 'Total entradas en el paso (camiones + boxes)', example: 0 },
+    box_entry_tons: { type: 'number', example: 0 },
+    consumption_tons: { type: 'number', example: 6 },
+    silo_level: { type: 'number', example: 14 },
+    is_stoppage: { type: 'boolean', example: false },
+    tolva_id: { type: 'integer', example: 1 },
+  },
+};
+
+const stoppageSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    plan_id: { type: 'integer' },
+    tolva_id: { type: 'integer' },
+    tipo: { type: 'string', example: 'mantenimiento' },
+    descripcion: { type: 'string', example: 'Cambio de filtros' },
+    dia: { type: 'string', example: 'Martes' },
+    hora_inicio: { type: 'string', example: '08:00' },
+    hora_fin: { type: 'string', example: '10:00' },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const boxEntrySchema = {
+  type: 'object',
+  description: 'Entrada de boxes (descarga programada que no es un camión: trasvase, recirculación, etc.).',
+  properties: {
+    id: { type: 'integer' },
+    plan_id: { type: 'integer' },
+    tolva_id: { type: 'integer' },
+    num_boxes: { type: 'integer', example: 4 },
+    total_tons: { type: 'number', example: 24 },
+    periodo_horas: { type: 'number', description: 'Periodo durante el que se reparte el total_tons', example: 8 },
+    dia: { type: 'string', example: 'Lunes' },
+    hora_inicio: { type: 'string', example: '08:00' },
+    descripcion: { type: 'string', example: 'Box norte' },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const levelReadingSchema = {
+  type: 'object',
+  description: 'Lectura manual del nivel real del silo. Reancla la simulación a partir de ese punto.',
+  properties: {
+    id: { type: 'integer' },
+    plan_id: { type: 'integer' },
+    tolva_id: { type: 'integer' },
+    dia: { type: 'string', example: 'Martes' },
+    hora: { type: 'string', example: '11:00' },
+    nivel_tn: { type: 'number', example: 18.5 },
+    nota: { type: 'string', example: '' },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const productivityPeriodSchema = {
+  type: 'object',
+  description: 'Franja de productividad: sustituye el consumo base de la tolva en su tramo. En solapamientos gana la más reciente (mayor id).',
+  properties: {
+    id: { type: 'integer' },
+    plan_id: { type: 'integer' },
+    tolva_id: { type: 'integer' },
+    dia: { type: 'string', example: 'Lunes' },
+    hora_inicio: { type: 'string', example: '14:00' },
+    hora_fin: { type: 'string', example: '18:00' },
+    consumo_tn_h: { type: 'number', example: 10 },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const tolvaSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    numero: { type: 'integer', example: 1 },
+    nombre: { type: 'string', example: 'Tolva 1' },
+    capacidad_tn: { type: 'number', example: 40 },
+    consumo_tn_h: { type: 'number', description: 'Consumo base (se puede sobreescribir por franjas)', example: 12 },
+    nivel_inicial_tn: { type: 'number', example: 20 },
+    paso_minutos: { type: 'integer', description: 'Resolución temporal del motor para esta tolva (15/30 típicamente)', example: 30 },
+    nivel_minimo_alerta_tn: { type: 'number', nullable: true, example: 5 },
+    max_espera_critico_h: { type: 'number', nullable: true, example: 2 },
+    activa: { type: 'boolean', example: true },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const webhookSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    name: { type: 'string', example: 'Bot Telegram retrasos' },
+    url: { type: 'string', example: 'https://n8n.example.com/webhook/sarval' },
+    events: { type: 'array', items: { type: 'string' }, example: ['delay_detected', 'plan_uploaded'] },
+    enabled: { type: 'boolean', example: true },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const proveedorSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    nombre: { type: 'string', example: 'TRANSPORTES X' },
+    activo: { type: 'boolean', example: true },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const telegramDriverSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    telegram_id: { type: 'string', description: 'BIGINT como string para no perder precisión en JSON', example: '123456789' },
+    telefono: { type: 'string', nullable: true, example: '+34600000000' },
+    nombre_chofer: { type: 'string', example: 'Juan Pérez' },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const personalPlantaSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    nombre: { type: 'string', example: 'María García' },
+    rol: { type: 'string', example: 'Jefa de planta' },
+    telefono: { type: 'string', nullable: true },
+    email: { type: 'string', nullable: true },
+    canal_preferido: { type: 'string', example: 'whatsapp' },
+    recibir_alertas: { type: 'boolean', example: true },
+    activo: { type: 'boolean', example: true },
+    created_at: { type: 'string', format: 'date-time' },
+  },
+};
+
+const weekMetaSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'integer', example: 28 },
+    week_start: { type: 'string', format: 'date', example: '2026-03-02' },
+    week_end: { type: 'string', format: 'date', example: '2026-03-08' },
+    week_number: { type: 'integer', example: 10 },
+    week_label: { type: 'string', example: 'Semana 10 · Lunes 2 mar – Domingo 8 mar 2026' },
+    type: { type: 'string', enum: ['vigente', 'proxima', 'pasada'] },
+  },
+};
+
+const planIdQuery = {
+  name: 'plan_id',
+  in: 'query',
+  required: false,
+  schema: { type: 'integer' },
+  description: 'Plan a consultar. Si se omite se usa el plan activo (vigente).',
+};
+const tolvaIdQuery = {
+  name: 'tolva_id',
+  in: 'query',
+  required: false,
+  schema: { type: 'integer' },
+  description: 'Filtra por tolva.',
+};
+
+export const openapiSpec = {
+  openapi: '3.0.3',
+  info: {
+    title: 'SARVAL API',
+    version: '1.0.0',
+    description: `API del planificador de descargas en silos de SARVAL.
+
+Toda la API está protegida con JWT bearer salvo \`POST /api/auth/login\`. El motor de simulación se recalcula **automáticamente** en cualquier endpoint que cambie el plan (subir Excel, crear/editar/borrar viaje, parada, box, lectura de nivel, franja de productividad o parámetros de tolva). El único recálculo manual con notificación de webhooks es \`POST /api/planning/recalculate\`.
+
+**Concepto "plan activo"**: la mayoría de endpoints aceptan \`?plan_id=…\`. Si no se pasa, se usa el plan vigente (el de la semana en curso).
+
+**Semana operativa**: Lunes 06:00 → Sábado 22:00 (consumo continuo, también de noche).
+
+Ver \`DOCS/API.md\` en el repo para los flujos típicos.`,
+  },
+  servers: [
+    { url: 'http://localhost:4000', description: 'Local' },
+    { url: 'https://sarval.example.com', description: 'Producción (ajustar)' },
+  ],
+  tags: [
+    { name: 'auth', description: 'Login y obtención de token JWT.' },
+    { name: 'planning', description: 'Semanas, secuenciación, simulación y recálculo.' },
+    { name: 'upload', description: 'Carga del Excel/CSV semanal.' },
+    { name: 'trips', description: 'CRUD de viajes (camiones).' },
+    { name: 'stoppages', description: 'Paradas programadas que pausan toda la actividad.' },
+    { name: 'box-entries', description: 'Entradas de boxes (descargas no-camión repartidas en un periodo).' },
+    { name: 'level-readings', description: 'Lecturas manuales de nivel real (reanclan la simulación).' },
+    { name: 'productivity-periods', description: 'Franjas de productividad variable (sobrescriben el consumo base).' },
+    { name: 'tolvas', description: 'Tolvas (silos) y sus parámetros.' },
+    { name: 'dashboard', description: 'KPIs y serie temporal para el gráfico.' },
+    { name: 'parameters', description: 'Parámetros globales (legado; se prefiere por tolva).' },
+    { name: 'webhooks', description: 'Webhooks de eventos. La emisión real se activa con FASE 2 (n8n/Telegram).' },
+    { name: 'proveedores', description: 'Catálogo de proveedores.' },
+    { name: 'telegram-drivers', description: 'Choferes vinculados al bot de Telegram.' },
+    { name: 'personal-planta', description: 'Personal de planta y canales de alerta.' },
+    { name: 'settings', description: 'Configuración global (zona horaria, base URL).' },
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+    },
+    schemas: {
+      Error: errorResponse,
+      Trip: tripSchema,
+      SequenceItem: sequenceItemSchema,
+      SimulationStep: simulationStepSchema,
+      Stoppage: stoppageSchema,
+      BoxEntry: boxEntrySchema,
+      LevelReading: levelReadingSchema,
+      ProductivityPeriod: productivityPeriodSchema,
+      Tolva: tolvaSchema,
+      Webhook: webhookSchema,
+      Proveedor: proveedorSchema,
+      TelegramDriver: telegramDriverSchema,
+      PersonalPlanta: personalPlantaSchema,
+      WeekMeta: weekMetaSchema,
+    },
+    responses: {
+      Unauthorized: { description: 'Token ausente o inválido.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      NotFound: { description: 'Recurso no encontrado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      BadRequest: { description: 'Petición inválida.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+    },
+  },
+  security: bearerSecurity,
+  paths: {
+    // ---------------- auth ----------------
+    '/api/auth/login': {
+      post: {
+        tags: ['auth'],
+        summary: 'Login y obtener JWT',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email', 'password'],
+                properties: {
+                  email: { type: 'string', description: 'Email o usuario.' },
+                  password: { type: 'string', format: 'password' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Token JWT y datos de usuario.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    token: { type: 'string', description: 'JWT a usar como `Authorization: Bearer <token>`' },
+                    user: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'integer', nullable: true },
+                        email: { type: 'string' },
+                        role: { type: 'string', example: 'superadmin' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+          401: { description: 'Credenciales incorrectas.' },
+        },
+      },
+    },
+
+    // ---------------- planning ----------------
+    '/api/planning/weeks': {
+      get: {
+        tags: ['planning'],
+        summary: 'Semanas disponibles (vigente, próxima, pasadas)',
+        description: 'Devuelve la semana vigente, crea/devuelve la próxima en estado `draft` y un histórico de las archivadas.',
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    vigente: { $ref: '#/components/schemas/WeekMeta' },
+                    proxima: { $ref: '#/components/schemas/WeekMeta' },
+                    pasadas: { type: 'array', items: { $ref: '#/components/schemas/WeekMeta' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/planning/sequence': {
+      get: {
+        tags: ['planning'],
+        summary: 'Secuenciación calculada por el motor',
+        parameters: [planIdQuery, tolvaIdQuery],
+        responses: {
+          200: { description: 'Lista de viajes con su hora final.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/SequenceItem' } } } } },
+        },
+      },
+    },
+    '/api/planning/simulation': {
+      get: {
+        tags: ['planning'],
+        summary: 'Simulación paso a paso del nivel del silo',
+        parameters: [planIdQuery, tolvaIdQuery],
+        responses: {
+          200: { description: 'Serie de pasos.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/SimulationStep' } } } } },
+        },
+      },
+    },
+    '/api/planning/recalculate': {
+      post: {
+        tags: ['planning'],
+        summary: 'Recálculo manual del plan activo',
+        description: 'Botón "Actualizar" en la UI. Único recálculo con `notify: true` → emite los webhooks configurados. El resto de acciones recalculan automáticamente en silencio.',
+        parameters: [planIdQuery],
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    message: { type: 'string' },
+                    plan_id: { type: 'integer' },
+                    sequence_count: { type: 'integer' },
+                    simulation_count: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+        },
+      },
+    },
+
+    // ---------------- upload ----------------
+    '/api/planning/upload': {
+      post: {
+        tags: ['upload'],
+        summary: 'Subir Excel/CSV semanal',
+        description: 'Reemplaza los viajes (no extras) del plan activo con los del archivo y recalcula. Si el archivo trae columna "Tolva" se respeta; si no, todo va a `tolva_id` (body) o a la primera tolva activa.',
+        parameters: [planIdQuery],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                properties: {
+                  file: { type: 'string', format: 'binary', description: 'Excel (.xlsx) o CSV con la planificación semanal.' },
+                  tolva_id: { type: 'integer', description: 'Tolva por defecto si el archivo no la trae.' },
+                },
+                required: ['file'],
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    message: { type: 'string' },
+                    plan_id: { type: 'integer' },
+                    imported: { type: 'integer' },
+                    parse_errors: { type: 'array', items: { type: 'object' } },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+        },
+      },
+    },
+
+    // ---------------- trips ----------------
+    '/api/trips': {
+      get: {
+        tags: ['trips'],
+        summary: 'Listar viajes del plan',
+        parameters: [
+          planIdQuery,
+          tolvaIdQuery,
+          { name: 'day', in: 'query', required: false, schema: { type: 'string', enum: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'] } },
+        ],
+        responses: { 200: { description: 'Lista de viajes.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Trip' } } } } } },
+      },
+    },
+    '/api/trips/{id}': {
+      get: {
+        tags: ['trips'],
+        summary: 'Obtener un viaje',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Trip' } } } }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+      put: {
+        tags: ['trips'],
+        summary: 'Editar viaje (recalcula plan)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Solo los campos a actualizar.',
+                properties: {
+                  day: { type: 'string' },
+                  scheduled_time: { type: 'string', example: '10:30' },
+                  supplier: { type: 'string' },
+                  producto: { type: 'string' },
+                  tons: { type: 'number' },
+                  is_critical: { type: 'boolean' },
+                  delay_h: { type: 'number' },
+                  new_time: { type: 'string' },
+                  status: { type: 'string' },
+                  tolva_id: { type: 'integer' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Trip' } } } }, 400: { $ref: '#/components/responses/BadRequest' }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+      delete: {
+        tags: ['trips'],
+        summary: 'Eliminar viaje (recalcula plan)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        responses: { 204: { description: 'Eliminado.' }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+    },
+    '/api/trips/extra': {
+      post: {
+        tags: ['trips'],
+        summary: 'Añadir viaje extra (recalcula plan)',
+        parameters: [planIdQuery],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['trip_number', 'day', 'scheduled_time', 'supplier', 'producto', 'tons', 'tolva_id'],
+                properties: {
+                  trip_number: { type: 'string', example: '9999XYZ' },
+                  day: { type: 'string', example: 'Miércoles' },
+                  scheduled_time: { type: 'string', example: '14:00' },
+                  supplier: { type: 'string', example: 'TRANSPORTES X' },
+                  producto: { type: 'string', example: 'MAÍZ' },
+                  tons: { type: 'number', example: 28 },
+                  is_critical: { type: 'boolean', example: false },
+                  tolva_id: { type: 'integer', example: 1 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Creado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Trip' } } } },
+          400: { $ref: '#/components/responses/BadRequest' },
+          409: { description: 'Ya existe un viaje con esa matrícula en la semana.' },
+        },
+      },
+    },
+    '/api/trips/{id}/divert': {
+      post: {
+        tags: ['trips'],
+        summary: 'Desviar viaje a otra tolva (recalcula ambas)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { type: 'object', required: ['tolva_id'], properties: { tolva_id: { type: 'integer', description: 'Tolva destino', example: 2 } } },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Desviado.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    message: { type: 'string' },
+                    trip_id: { type: 'integer' },
+                    from_tolva_id: { type: 'integer' },
+                    to_tolva_id: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: '#/components/responses/BadRequest' },
+          404: { $ref: '#/components/responses/NotFound' },
+        },
+      },
+    },
+
+    // ---------------- stoppages ----------------
+    '/api/stoppages': {
+      get: { tags: ['stoppages'], summary: 'Listar paradas del plan', parameters: [planIdQuery, tolvaIdQuery], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Stoppage' } } } } } } },
+      post: {
+        tags: ['stoppages'],
+        summary: 'Crear parada (recalcula)',
+        description: 'Pausa TODA actividad (consumo, camiones y boxes) entre `hora_inicio` y `hora_fin` del día indicado.',
+        parameters: [planIdQuery],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tolva_id', 'dia', 'hora_inicio', 'hora_fin'],
+                properties: {
+                  tolva_id: { type: 'integer' },
+                  tipo: { type: 'string', example: 'mantenimiento' },
+                  descripcion: { type: 'string' },
+                  dia: { type: 'string', example: 'Martes' },
+                  hora_inicio: { type: 'string', example: '08:00' },
+                  hora_fin: { type: 'string', example: '10:00' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: 'Creado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Stoppage' } } } }, 400: { $ref: '#/components/responses/BadRequest' } },
+      },
+    },
+    '/api/stoppages/{id}': {
+      put: {
+        tags: ['stoppages'],
+        summary: 'Editar parada (recalcula)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { tipo: { type: 'string' }, descripcion: { type: 'string' }, dia: { type: 'string' }, hora_inicio: { type: 'string' }, hora_fin: { type: 'string' } } } } } },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Stoppage' } } } }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+      delete: { tags: ['stoppages'], summary: 'Eliminar parada (recalcula)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminado.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- box-entries ----------------
+    '/api/box-entries': {
+      get: { tags: ['box-entries'], summary: 'Listar entradas de boxes', parameters: [planIdQuery, tolvaIdQuery], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/BoxEntry' } } } } } } },
+      post: {
+        tags: ['box-entries'],
+        summary: 'Crear entrada de boxes (recalcula)',
+        parameters: [planIdQuery],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tolva_id', 'dia', 'total_tons'],
+                properties: {
+                  tolva_id: { type: 'integer' },
+                  num_boxes: { type: 'integer', default: 1 },
+                  total_tons: { type: 'number', example: 24 },
+                  periodo_horas: { type: 'number', default: 24, example: 8 },
+                  dia: { type: 'string', example: 'Lunes' },
+                  hora_inicio: { type: 'string', default: '06:00' },
+                  descripcion: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: 'Creado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/BoxEntry' } } } }, 400: { $ref: '#/components/responses/BadRequest' } },
+      },
+    },
+    '/api/box-entries/{id}': {
+      put: {
+        tags: ['box-entries'],
+        summary: 'Editar entrada de boxes (recalcula)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { num_boxes: { type: 'integer' }, total_tons: { type: 'number' }, periodo_horas: { type: 'number' }, dia: { type: 'string' }, hora_inicio: { type: 'string' }, descripcion: { type: 'string' } } } } } },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/BoxEntry' } } } }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+      delete: { tags: ['box-entries'], summary: 'Eliminar entrada de boxes (recalcula)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminado.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- level-readings ----------------
+    '/api/level-readings': {
+      get: { tags: ['level-readings'], summary: 'Listar lecturas de nivel', parameters: [planIdQuery, tolvaIdQuery], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/LevelReading' } } } } } } },
+      post: {
+        tags: ['level-readings'],
+        summary: 'Registrar lectura real de nivel (recalcula)',
+        description: 'A partir de la hora de la lectura, el motor toma `nivel_tn` como verdad y recalcula hacia adelante. El pasado no cambia.',
+        parameters: [planIdQuery],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tolva_id', 'dia', 'hora', 'nivel_tn'],
+                properties: {
+                  tolva_id: { type: 'integer' },
+                  dia: { type: 'string', example: 'Martes' },
+                  hora: { type: 'string', example: '11:00' },
+                  nivel_tn: { type: 'number', example: 18.5 },
+                  nota: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: 'Creada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/LevelReading' } } } }, 400: { $ref: '#/components/responses/BadRequest' } },
+      },
+    },
+    '/api/level-readings/{id}': {
+      delete: { tags: ['level-readings'], summary: 'Eliminar lectura (recalcula)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminada.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- productivity-periods ----------------
+    '/api/productivity-periods': {
+      get: { tags: ['productivity-periods'], summary: 'Listar franjas de productividad', parameters: [planIdQuery, tolvaIdQuery], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/ProductivityPeriod' } } } } } } },
+      post: {
+        tags: ['productivity-periods'],
+        summary: 'Crear franja (recalcula)',
+        description: 'En su tramo, sustituye el `consumo_tn_h` base de la tolva. En solapamientos, gana la franja con `id` mayor.',
+        parameters: [planIdQuery],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tolva_id', 'dia', 'hora_inicio', 'hora_fin', 'consumo_tn_h'],
+                properties: {
+                  tolva_id: { type: 'integer' },
+                  dia: { type: 'string', example: 'Lunes' },
+                  hora_inicio: { type: 'string', example: '14:00' },
+                  hora_fin: { type: 'string', example: '18:00' },
+                  consumo_tn_h: { type: 'number', example: 10 },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: 'Creada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductivityPeriod' } } } }, 400: { $ref: '#/components/responses/BadRequest' } },
+      },
+    },
+    '/api/productivity-periods/{id}': {
+      put: {
+        tags: ['productivity-periods'],
+        summary: 'Editar franja (recalcula)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { dia: { type: 'string' }, hora_inicio: { type: 'string' }, hora_fin: { type: 'string' }, consumo_tn_h: { type: 'number' } } } } } },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductivityPeriod' } } } }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+      delete: { tags: ['productivity-periods'], summary: 'Eliminar franja (recalcula)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminada.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- tolvas ----------------
+    '/api/tolvas': {
+      get: {
+        tags: ['tolvas'],
+        summary: 'Listar tolvas',
+        parameters: [{ name: 'todas', in: 'query', schema: { type: 'boolean' }, description: 'Incluir inactivas.' }],
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Tolva' } } } } } },
+      },
+      post: {
+        tags: ['tolvas'],
+        summary: 'Crear tolva',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['numero'], properties: { numero: { type: 'integer', example: 3 }, nombre: { type: 'string' }, capacidad_tn: { type: 'number', default: 40 }, consumo_tn_h: { type: 'number', default: 12 }, nivel_inicial_tn: { type: 'number', default: 20 }, paso_minutos: { type: 'integer', default: 30 }, nivel_minimo_alerta_tn: { type: 'number' }, max_espera_critico_h: { type: 'number' } } } } } },
+        responses: { 201: { description: 'Creada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Tolva' } } } }, 409: { description: 'Número de tolva duplicado.' } },
+      },
+    },
+    '/api/tolvas/{id}': {
+      get: { tags: ['tolvas'], summary: 'Detalle de una tolva', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Tolva' } } } }, 404: { $ref: '#/components/responses/NotFound' } } },
+      put: {
+        tags: ['tolvas'],
+        summary: 'Editar tolva (recalcula si afecta a la simulación)',
+        description: 'Si se cambia `capacidad_tn`, `consumo_tn_h`, `nivel_inicial_tn`, `paso_minutos` o `activa`, recalcula el plan vigente.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }, planIdQuery],
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { nombre: { type: 'string' }, capacidad_tn: { type: 'number' }, consumo_tn_h: { type: 'number' }, nivel_inicial_tn: { type: 'number' }, paso_minutos: { type: 'integer' }, nivel_minimo_alerta_tn: { type: 'number' }, max_espera_critico_h: { type: 'number' }, activa: { type: 'boolean' } } } } } },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Tolva' } } } }, 404: { $ref: '#/components/responses/NotFound' } },
+      },
+      delete: { tags: ['tolvas'], summary: 'Desactivar tolva (soft delete)', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Desactivada.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- dashboard ----------------
+    '/api/dashboard': {
+      get: {
+        tags: ['dashboard'],
+        summary: 'KPIs del plan',
+        parameters: [planIdQuery, tolvaIdQuery],
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tolvas: { type: 'array', items: { type: 'object' } },
+                    horas_paradas: { type: 'number' },
+                    stock_minimo: { type: 'number', nullable: true },
+                    total_viajes: { type: 'integer' },
+                    viajes_con_retraso: { type: 'integer' },
+                    plan_id: { type: 'integer', nullable: true },
+                    week: { $ref: '#/components/schemas/WeekMeta' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/dashboard/silo-chart': {
+      get: {
+        tags: ['dashboard'],
+        summary: 'Serie temporal para el gráfico del silo',
+        parameters: [planIdQuery, tolvaIdQuery],
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    series: { type: 'array', items: { type: 'object', description: 'Paso enriquecido con timestamp, truck/box entry desglosado, etc.' } },
+                    week: { $ref: '#/components/schemas/WeekMeta' },
+                    tolva: { $ref: '#/components/schemas/Tolva' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ---------------- parameters ----------------
+    '/api/parameters': {
+      get: { tags: ['parameters'], summary: 'Parámetros globales (legado)', responses: { 200: { description: 'Objeto plano key→number.', content: { 'application/json': { schema: { type: 'object', additionalProperties: { type: 'number' } } } } } } },
+      put: {
+        tags: ['parameters'],
+        summary: 'Actualizar parámetros globales (legado)',
+        description: 'Hoy se prefiere configurar por tolva (`/api/tolvas/{id}`).',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { Capacidad_silo_tn: { type: 'number' }, Consumo_tn_h: { type: 'number' }, Nivel_inicial_tn: { type: 'number' }, Paso_minutos: { type: 'number' } } } } } },
+        responses: { 200: { description: 'OK' } },
+      },
+    },
+
+    // ---------------- webhooks ----------------
+    '/api/webhooks': {
+      get: { tags: ['webhooks'], summary: 'Listar webhooks', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Webhook' } } } } } } },
+      post: {
+        tags: ['webhooks'],
+        summary: 'Crear webhook',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['url'], properties: { name: { type: 'string' }, url: { type: 'string' }, events: { type: 'array', items: { type: 'string', enum: ['recalculate_done', 'delay_detected', 'trip_extra_added', 'trip_updated', 'plan_uploaded'] } } } } } } },
+        responses: { 201: { description: 'Creado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Webhook' } } } }, 400: { $ref: '#/components/responses/BadRequest' } },
+      },
+    },
+    '/api/webhooks/events': {
+      get: { tags: ['webhooks'], summary: 'Catálogo de eventos disponibles', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { type: 'object', properties: { key: { type: 'string' }, label: { type: 'string' } } } } } } } } },
+    },
+    '/api/webhooks/{id}': {
+      put: { tags: ['webhooks'], summary: 'Editar webhook', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, url: { type: 'string' }, events: { type: 'array', items: { type: 'string' } }, enabled: { type: 'boolean' } } } } } }, responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Webhook' } } } }, 404: { $ref: '#/components/responses/NotFound' } } },
+      delete: { tags: ['webhooks'], summary: 'Eliminar webhook', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminado.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- proveedores ----------------
+    '/api/proveedores': {
+      get: { tags: ['proveedores'], summary: 'Listar proveedores', parameters: [{ name: 'activo', in: 'query', schema: { type: 'boolean' } }], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/Proveedor' } } } } } } },
+      post: { tags: ['proveedores'], summary: 'Crear proveedor', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['nombre'], properties: { nombre: { type: 'string' }, activo: { type: 'boolean' } } } } } }, responses: { 201: { description: 'Creado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Proveedor' } } } } } },
+    },
+    '/api/proveedores/{id}': {
+      put: { tags: ['proveedores'], summary: 'Editar proveedor', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { nombre: { type: 'string' }, activo: { type: 'boolean' } } } } } }, responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/Proveedor' } } } }, 404: { $ref: '#/components/responses/NotFound' } } },
+      delete: { tags: ['proveedores'], summary: 'Desactivar proveedor', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Desactivado.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- telegram-drivers ----------------
+    '/api/telegram-drivers': {
+      get: { tags: ['telegram-drivers'], summary: 'Listar choferes', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/TelegramDriver' } } } } } } },
+      post: { tags: ['telegram-drivers'], summary: 'Crear chofer', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['telegram_id', 'nombre_chofer'], properties: { telegram_id: { type: 'string', example: '123456789' }, nombre_chofer: { type: 'string' }, telefono: { type: 'string' } } } } } }, responses: { 201: { description: 'Creado.', content: { 'application/json': { schema: { $ref: '#/components/schemas/TelegramDriver' } } } }, 409: { description: 'telegram_id duplicado.' } } },
+    },
+    '/api/telegram-drivers/{id}': {
+      put: { tags: ['telegram-drivers'], summary: 'Editar chofer', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { nombre_chofer: { type: 'string' }, telefono: { type: 'string' } } } } } }, responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/TelegramDriver' } } } }, 404: { $ref: '#/components/responses/NotFound' } } },
+      delete: { tags: ['telegram-drivers'], summary: 'Eliminar chofer', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminado.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- personal-planta ----------------
+    '/api/personal-planta': {
+      get: { tags: ['personal-planta'], summary: 'Listar personal de planta', parameters: [{ name: 'todos', in: 'query', schema: { type: 'boolean' }, description: 'Incluir inactivos.' }], responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/PersonalPlanta' } } } } } } },
+      post: { tags: ['personal-planta'], summary: 'Crear persona', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['nombre'], properties: { nombre: { type: 'string' }, rol: { type: 'string' }, telefono: { type: 'string' }, email: { type: 'string' }, canal_preferido: { type: 'string', enum: ['whatsapp', 'telegram', 'email', 'sms'] }, recibir_alertas: { type: 'boolean' } } } } } }, responses: { 201: { description: 'Creada.', content: { 'application/json': { schema: { $ref: '#/components/schemas/PersonalPlanta' } } } } } },
+    },
+    '/api/personal-planta/{id}': {
+      put: { tags: ['personal-planta'], summary: 'Editar persona', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { nombre: { type: 'string' }, rol: { type: 'string' }, telefono: { type: 'string' }, email: { type: 'string' }, canal_preferido: { type: 'string' }, recibir_alertas: { type: 'boolean' }, activo: { type: 'boolean' } } } } } }, responses: { 200: { description: 'OK', content: { 'application/json': { schema: { $ref: '#/components/schemas/PersonalPlanta' } } } }, 404: { $ref: '#/components/responses/NotFound' } } },
+      delete: { tags: ['personal-planta'], summary: 'Eliminar persona', parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { 204: { description: 'Eliminada.' }, 404: { $ref: '#/components/responses/NotFound' } } },
+    },
+
+    // ---------------- settings ----------------
+    '/api/settings': {
+      get: { tags: ['settings'], summary: 'Configuración global', responses: { 200: { description: 'OK', content: { 'application/json': { schema: { type: 'object', properties: { timezone: { type: 'string', example: 'Europe/Madrid' }, api_base_url: { type: 'string' }, timezone_options: { type: 'array', items: { type: 'string' } }, endpoints: { type: 'array', items: { type: 'object' }, description: 'Catálogo legado de endpoints (también está esta spec OpenAPI).' } } } } } } } },
+      put: { tags: ['settings'], summary: 'Editar configuración global', requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { timezone: { type: 'string' }, api_base_url: { type: 'string' } } } } } }, responses: { 200: { description: 'OK' } } },
+    },
+  },
+};
+
+export default openapiSpec;

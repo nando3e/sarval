@@ -1,7 +1,9 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
 import { authMiddleware } from './middleware/auth.js';
+import { openapiSpec } from './docs/openapi.js';
 import authRoutes from './routes/auth.js';
 import parametersRoutes from './routes/parameters.js';
 import planningRoutes from './routes/planning.js';
@@ -24,6 +26,15 @@ const PORT = process.env.PORT || 4000;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+
+// Documentación OpenAPI (Swagger UI). Abierta por defecto; para cerrarla
+// detrás de JWT poner OPENAPI_PUBLIC=false en .env.
+app.get('/api/docs.json', (_req, res) => res.json(openapiSpec));
+const docsGuard = process.env.OPENAPI_PUBLIC === 'false' ? authMiddleware : (_req, _res, next) => next();
+app.use('/api/docs', docsGuard, swaggerUi.serve, swaggerUi.setup(openapiSpec, {
+  customSiteTitle: 'SARVAL API',
+  swaggerOptions: { persistAuthorization: true },
+}));
 
 app.use('/api/auth', authRoutes);
 
