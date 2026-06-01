@@ -436,7 +436,7 @@ export default function Dashboard() {
                     height={0}
                   />
                   <YAxis domain={[0, yDomainMaxFn]} allowDataOverflow={false} tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v)}tn`} width={48} />
-                  <Tooltip content={<LevelTooltip />} position={{ y: 170 }} />
+                  <Tooltip content={<LevelTooltip />} offset={15} />
                   {stoppageBands.map((b) => (
                     <ReferenceArea key={b.id} x1={b.from} x2={b.to} fill="#94a3b8" fillOpacity={0.18} ifOverflow="extendDomain" />
                   ))}
