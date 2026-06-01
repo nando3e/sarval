@@ -5,7 +5,7 @@ import { recalcPlan } from '../services/recalc.js';
 
 const router = Router();
 
-const TOLVA_FIELDS = 'id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, activa, created_at';
+const TOLVA_FIELDS = 'id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, hora_inicio_consumo, hora_fin_consumo, activa, created_at';
 
 /** GET /api/tolvas — lista de tolvas (activas por defecto; ?todas=true para incluir inactivas) */
 router.get('/', async (req, res) => {
@@ -37,13 +37,13 @@ router.get('/:id', async (req, res) => {
 /** POST /api/tolvas — crear tolva */
 router.post('/', async (req, res) => {
   try {
-    const { numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h } = req.body || {};
+    const { numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, hora_inicio_consumo, hora_fin_consumo } = req.body || {};
     if (numero == null || Number.isNaN(Number(numero))) {
       return res.status(400).json({ error: 'El número de tolva es obligatorio' });
     }
     const r = await pool.query(
-      `INSERT INTO tolvas (numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ${TOLVA_FIELDS}`,
+      `INSERT INTO tolvas (numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, hora_inicio_consumo, hora_fin_consumo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${TOLVA_FIELDS}`,
       [
         Number(numero),
         String(nombre || `Tolva ${numero}`).trim(),
@@ -53,6 +53,8 @@ router.post('/', async (req, res) => {
         Number(paso_minutos) || 30,
         nivel_minimo_alerta_tn != null ? Number(nivel_minimo_alerta_tn) : null,
         max_espera_critico_h != null ? Number(max_espera_critico_h) : null,
+        hora_inicio_consumo || '06:00',
+        hora_fin_consumo || '22:00',
       ]
     );
     res.status(201).json(r.rows[0]);
@@ -70,7 +72,7 @@ router.put('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Id inválido' });
-    const { nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, activa } = req.body || {};
+    const { nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, hora_inicio_consumo, hora_fin_consumo, activa } = req.body || {};
     const updates = [];
     const values = [];
     let i = 1;
@@ -81,6 +83,8 @@ router.put('/:id', async (req, res) => {
     if (paso_minutos !== undefined) { updates.push(`paso_minutos = $${i++}`); values.push(Number(paso_minutos)); }
     if (nivel_minimo_alerta_tn !== undefined) { updates.push(`nivel_minimo_alerta_tn = $${i++}`); values.push(nivel_minimo_alerta_tn != null ? Number(nivel_minimo_alerta_tn) : null); }
     if (max_espera_critico_h !== undefined) { updates.push(`max_espera_critico_h = $${i++}`); values.push(max_espera_critico_h != null ? Number(max_espera_critico_h) : null); }
+    if (hora_inicio_consumo !== undefined) { updates.push(`hora_inicio_consumo = $${i++}`); values.push(hora_inicio_consumo || '06:00'); }
+    if (hora_fin_consumo !== undefined) { updates.push(`hora_fin_consumo = $${i++}`); values.push(hora_fin_consumo || '22:00'); }
     if (activa !== undefined) { updates.push(`activa = $${i++}`); values.push(!!activa); }
     if (updates.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
     values.push(id);
@@ -91,7 +95,7 @@ router.put('/:id', async (req, res) => {
     if (r.rows.length === 0) return res.status(404).json({ error: 'Tolva no encontrada' });
     // Los parámetros de la tolva (capacidad, consumo, paso, nivel inicial)
     // afectan a la simulación: recalcula el plan que el cliente esté viendo.
-    const affectsSim = ['capacidad_tn', 'consumo_tn_h', 'nivel_inicial_tn', 'paso_minutos', 'activa'].some((k) => req.body?.[k] !== undefined);
+    const affectsSim = ['capacidad_tn', 'consumo_tn_h', 'nivel_inicial_tn', 'paso_minutos', 'hora_inicio_consumo', 'hora_fin_consumo', 'activa'].some((k) => req.body?.[k] !== undefined);
     if (affectsSim) {
       const planId = await resolvePlanId(req);
       if (planId) await recalcPlan(planId, { trigger: 'tolva_params' });

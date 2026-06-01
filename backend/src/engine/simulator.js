@@ -9,7 +9,7 @@
  * o el consumo haya creado espacio suficiente.
  */
 
-const IDX_DAY = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const IDX_DAY = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DAY_INDEX = {
   Lunes: 0, LUNES: 0, lunes: 0,
   Martes: 1, MARTES: 1, martes: 1,
@@ -17,7 +17,12 @@ const DAY_INDEX = {
   Jueves: 3, JUEVES: 3, jueves: 3,
   Viernes: 4, VIERNES: 4, viernes: 4,
   Sábado: 5, Sabado: 5, SABADO: 5, sábado: 5, sabado: 5,
+  Domingo: 6, DOMINGO: 6, domingo: 6,
 };
+
+// La semana operativa abarca 7 días (Lunes..Domingo). Constantes derivadas del
+// nº de pasos/hora para no repetir el "7 * 24 * STEPS_H" por todo el motor.
+const WEEK_DAYS = 7;
 
 function toNumber(v) {
   if (typeof v === 'number') return v;
@@ -64,12 +69,17 @@ function stepToHHMM(s, STEPS_H, PASO) {
 }
 
 function buildTrucks(trips, STEPS_H, PASO) {
+  const START = 0;                                 // Lunes 00:00
+  const END = WEEK_DAYS * 24 * STEPS_H - 1;        // Domingo 23:xx (último paso antes de medianoche)
   const trucks = [];
   for (const t of trips) {
     const dy = coerceDay(t.day);
     const tm = coerceTimeToStep(t.scheduled_time, STEPS_H, PASO);
     let arr = dy.dIdx * 24 * STEPS_H + tm.step;
-    while (arr >= 6 * 24 * STEPS_H) arr -= 6 * 24 * STEPS_H;
+    while (arr >= WEEK_DAYS * 24 * STEPS_H) arr -= WEEK_DAYS * 24 * STEPS_H;
+    // Los camiones pueden llegar cualquier día/hora de la semana (Lunes 00:00 a
+    // Domingo medianoche). Solo se ancla al borde si cayera fuera del rango.
+    arr = Math.min(END, Math.max(START, arr));
     trucks.push({
       id: t.id,
       trip_number: t.trip_number,
@@ -213,7 +223,7 @@ function buildReadingMap(readings, STEPS_H, PASO) {
 
 /**
  * Ejecuta el motor de simulación para una tolva.
- * @param {Object} params - { capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos }
+ * @param {Object} params - { capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, hora_inicio_consumo }
  * @param {Array} trips - Viajes filtrados por plan_id y tolva_id
  * @param {Array} [stoppages=[]] - Paradas programadas para esta tolva
  * @param {Array} [boxEntries=[]] - Entradas graduales de boxes
@@ -224,13 +234,28 @@ function buildReadingMap(readings, STEPS_H, PASO) {
 export function run(params, trips, stoppages = [], boxEntries = [], readings = [], productivityPeriods = []) {
   const CAP = toNumber(params.capacidad_tn ?? params.Capacidad_silo_tn) || 40;
   const CONS_H = toNumber(params.consumo_tn_h ?? params.Consumo_tn_h) || 12;
-  const NIVEL0 = toNumber(params.nivel_inicial_tn ?? params.Nivel_inicial_tn) || 20;
+  // Nivel inicial: se respeta el 0 explícito (silo vacío al empezar la semana);
+  // solo se cae al defecto si no viene ningún valor.
+  const nivelRaw = params.nivel_inicial_tn ?? params.Nivel_inicial_tn;
+  const NIVEL0 = nivelRaw != null && String(nivelRaw).trim() !== '' ? toNumber(nivelRaw) : 20;
   const PASO = toNumber(params.paso_minutos ?? params.Paso_minutos) || 30;
   const STEPS_H = 60 / PASO;
   const CONS_STEP = CONS_H / STEPS_H;
 
-  const START = () => 6 * STEPS_H;
-  const END = () => 5 * 24 * STEPS_H + 22 * STEPS_H;
+  // La semana (recepción de camiones + curva) va de Lunes 00:00 a Domingo
+  // medianoche. Los camiones pueden descargar en todo este rango.
+  const START = () => 0;
+  const END = () => WEEK_DAYS * 24 * STEPS_H - 1;
+
+  // Ventana de CONSUMO base: del Lunes `hora_inicio_consumo` (def 06:00) al
+  // Sábado `hora_fin_consumo` (def 22:00). Dentro de la ventana hay consumo
+  // continuo (incl. noches). Fuera de ella NO hay consumo base... salvo que una
+  // franja de productividad cubra el paso: una franja activa el consumo a su
+  // caudal en cualquier día/hora (así se "amplía" el finde con franjas).
+  const consInicio = coerceTimeToStep(params.hora_inicio_consumo ?? '06:00', STEPS_H, PASO);
+  const CONSUMO_INICIO = consInicio.step;                       // step dentro del Lunes (día 0)
+  const consFin = coerceTimeToStep(params.hora_fin_consumo ?? '22:00', STEPS_H, PASO);
+  const CONSUMO_FIN = 5 * 24 * STEPS_H + consFin.step;          // Sábado (día 5) + hora fin
 
   const trucks = buildTrucks(trips, STEPS_H, PASO);
   const stoppedSteps = buildStoppageSteps(stoppages, STEPS_H, PASO);
@@ -265,7 +290,9 @@ export function run(params, trips, stoppages = [], boxEntries = [], readings = [
       level = Math.min(CAP, level + boxTons);
     }
 
-    while (pos < trucks.length && trucks[pos].arr === t) {
+    // `<= t` (no `=== t`): encola todo camión cuya llegada ya ocurrió o ocurre
+    // en este paso. Evita que un step sin coincidencia exacta atasque el puntero.
+    while (pos < trucks.length && trucks[pos].arr <= t) {
       (trucks[pos].crit ? qC : qN).push(trucks[pos]);
       pos++;
     }
@@ -319,7 +346,12 @@ export function run(params, trips, stoppages = [], boxEntries = [], readings = [
       }
     }
 
-    const cons = isStopped ? 0 : Math.min(rateAt(t) / STEPS_H, level);
+    // Consume si NO hay parada y (está dentro de la ventana base de consumo
+    // O hay una franja que cubre este paso). La franja activa el consumo fuera
+    // de la ventana (finde, noches del finde, etc.).
+    const inWindow = t >= CONSUMO_INICIO && t < CONSUMO_FIN;
+    const consumes = !isStopped && (inWindow || rateMap[t] != null);
+    const cons = consumes ? Math.min(rateAt(t) / STEPS_H, level) : 0;
     level -= cons;
   }
 
@@ -370,7 +402,9 @@ export function run(params, trips, stoppages = [], boxEntries = [], readings = [
     const isStopped = stoppedSteps.has(t);
     lvl2 = Math.min(CAP, lvl2 + totalEnt);
     const levelAfterEntry = lvl2;
-    const cons = isStopped ? 0 : Math.min(rateAt(t) / STEPS_H, lvl2);
+    const inWindow = t >= CONSUMO_INICIO && t < CONSUMO_FIN;
+    const consumes = !isStopped && (inWindow || rateMap[t] != null);
+    const cons = consumes ? Math.min(rateAt(t) / STEPS_H, lvl2) : 0;
     lvl2 -= cons;
     simulation.push({
       step_index: t,

@@ -4,7 +4,7 @@ import { resolvePlanId, toLocalDateOnly } from '../db/helpers.js';
 
 const router = Router();
 
-const DAY_ORDER = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAY_ORDER = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
 function getWeekNumber(dateStr) {
   const d = new Date(dateStr + 'T00:00:00Z');

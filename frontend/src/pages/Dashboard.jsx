@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import styles from './Dashboard.module.css';
 
-const DAY_TICKS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAY_TICKS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DAY_FROM_JS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 function roundToPaso(date, paso) {
@@ -21,7 +21,7 @@ function roundToPaso(date, paso) {
 
 function readingStep(dia, hora, paso) {
   const STEPS_H = 60 / paso;
-  const dayIdx = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].indexOf(dia);
+  const dayIdx = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].indexOf(dia);
   if (dayIdx < 0) return null;
   const [hh, mm] = String(hora).slice(0, 5).split(':').map(Number);
   if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
@@ -70,7 +70,7 @@ function FlowTooltip({ active, payload, tripsByStep }) {
   );
 }
 
-const DAY_TO_IDX = { Lunes: 0, Martes: 1, Miércoles: 2, Jueves: 3, Viernes: 4, Sábado: 5 };
+const DAY_TO_IDX = { Lunes: 0, Martes: 1, Miércoles: 2, Jueves: 3, Viernes: 4, Sábado: 5, Domingo: 6 };
 
 function tripsByStepFromSequence(sequence, paso) {
   const STEPS_H = 60 / (paso || 30);
@@ -126,6 +126,13 @@ export default function Dashboard() {
   }, [selectedTolva]);
 
   useEffect(() => { load(); }, [load, planId]);
+
+  // Recarga cuando los parámetros de una tolva cambian (evento emitido por Tolvas.jsx).
+  useEffect(() => {
+    const handler = () => load();
+    window.addEventListener('sarval:tolva-updated', handler);
+    return () => window.removeEventListener('sarval:tolva-updated', handler);
+  }, [load]);
 
   if (loading) return <p className={styles.muted}>Cargando…</p>;
   if (error) return <p className={styles.error}>{error}</p>;

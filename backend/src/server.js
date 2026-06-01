@@ -19,6 +19,7 @@ import stoppagesRoutes from './routes/stoppages.js';
 import boxEntriesRoutes from './routes/boxEntries.js';
 import levelReadingsRoutes from './routes/levelReadings.js';
 import productivityPeriodsRoutes from './routes/productivityPeriods.js';
+import planTolvaSettingsRoutes from './routes/planTolvaSettings.js';
 import personalPlantaRoutes from './routes/personalPlanta.js';
 
 const app = express();
@@ -66,6 +67,7 @@ app.use('/api/stoppages', authMiddleware, stoppagesRoutes);
 app.use('/api/box-entries', authMiddleware, boxEntriesRoutes);
 app.use('/api/level-readings', authMiddleware, levelReadingsRoutes);
 app.use('/api/productivity-periods', authMiddleware, productivityPeriodsRoutes);
+app.use('/api/plan-tolva-settings', authMiddleware, planTolvaSettingsRoutes);
 app.use('/api/personal-planta', authMiddleware, personalPlantaRoutes);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));

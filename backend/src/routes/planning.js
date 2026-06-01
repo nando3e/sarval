@@ -56,27 +56,46 @@ router.get('/weeks', async (_req, res) => {
       vigente = { id: vigenteRow.rows[0].id, ...buildWeekMeta(raw), type: 'vigente' };
     }
 
+    // Puede haber varios planes para la misma semana (duplicados históricos).
+    // Elegimos siempre el que TIENE datos (más viajes), no el id más alto, para
+    // no mostrar un plan fantasma vacío que oculta los datos reales.
     let proximaRow = await pool.query(
-      'SELECT id, week_start FROM weekly_plans WHERE week_start = $1',
+      `SELECT wp.id, wp.week_start,
+              (SELECT count(*) FROM trips t WHERE t.plan_id = wp.id) AS trip_count
+       FROM weekly_plans wp
+       WHERE wp.week_start = $1
+       ORDER BY trip_count DESC, wp.id DESC
+       LIMIT 1`,
       [nextMonday]
     );
     if (proximaRow.rows.length === 0) {
-      const ins = await pool.query(
-        "INSERT INTO weekly_plans (week_start, status) VALUES ($1, 'draft') RETURNING id, week_start",
+      // Idempotente: si otra petición concurrente ya creó la próxima, no se
+      // duplica (UNIQUE(week_start) + ON CONFLICT); se reutiliza la existente.
+      await pool.query(
+        `INSERT INTO weekly_plans (week_start, status) VALUES ($1, 'draft')
+         ON CONFLICT (week_start) DO NOTHING`,
         [nextMonday]
       );
-      proximaRow = ins;
+      proximaRow = await pool.query(
+        'SELECT id, week_start FROM weekly_plans WHERE week_start = $1 LIMIT 1',
+        [nextMonday]
+      );
     }
     const proxima = proximaRow.rows[0]
       ? { id: proximaRow.rows[0].id, ...buildWeekMeta(toLocalDateOnly(proximaRow.rows[0].week_start)), type: 'proxima' }
       : null;
 
     const pasadasRows = await pool.query(
-      "SELECT id, week_start FROM weekly_plans WHERE status = 'archived' ORDER BY week_start DESC, id DESC"
+      `SELECT wp.id, wp.week_start,
+              (SELECT count(*) FROM trips t WHERE t.plan_id = wp.id) AS trip_count
+       FROM weekly_plans wp
+       WHERE wp.status = 'archived'
+       ORDER BY wp.week_start DESC, trip_count DESC, wp.id DESC`
     );
     const byWeekStart = new Map();
     pasadasRows.rows.forEach((row) => {
       const raw = toLocalDateOnly(row.week_start);
+      // El primero por semana ya es el de más viajes (ORDER BY trip_count DESC).
       if (!byWeekStart.has(raw)) byWeekStart.set(raw, row);
     });
     const pasadas = [...byWeekStart.values()]

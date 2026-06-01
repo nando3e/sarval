@@ -4,29 +4,33 @@ import { usePlan } from '../context/PlanContext';
 import { useTolvas } from '../context/TolvaContext';
 import styles from './Tables.module.css';
 
-const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const toHHmm = (v) => String(v ?? '').slice(0, 5);
 const toMin = (hhmm) => {
   const [h, m] = String(hhmm).slice(0, 5).split(':').map(Number);
   return (Number.isNaN(h) ? 0 : h) * 60 + (Number.isNaN(m) ? 0 : m);
 };
 
-// Semana operativa: Lunes 06:00 → Sábado 22:00 (consumo continuo entre medias).
-function isOperating(day, minute) {
-  if (day === 'Lunes') return minute >= 360;
-  if (day === 'Sábado') return minute < 1320;
+// Ventana de CONSUMO base: del Lunes `startMin` (def 06:00=360) al Sábado
+// `endMin` (def 22:00=1320), continua incluidas las noches. El Domingo queda
+// fuera de la ventana base. Fuera de la ventana no hay consumo base, pero una
+// franja activa el consumo en su tramo (se pinta verde igualmente).
+function isOperating(day, minute, startMin = 360, endMin = 1320) {
+  if (day === 'Lunes') return minute >= startMin;
+  if (day === 'Sábado') return minute < endMin;
+  if (day === 'Domingo') return false;
   return true;
 }
 
 // Calcula los segmentos de un día: tramos contiguos con estado homogéneo
 // ('fuera' | 'base' | 'custom' con rate). Solapamientos → gana mayor id.
-function daySegments(day, periods, baseRate) {
+function daySegments(day, periods, baseRate, startMin = 360, endMin = 1320) {
   const dayPeriods = periods
     .filter((p) => p.dia === day)
     .map((p) => ({ start: toMin(p.hora_inicio), end: toMin(p.hora_fin), rate: Number(p.consumo_tn_h), id: Number(p.id) || 0 }))
     .filter((p) => p.end > p.start);
 
-  const bounds = new Set([0, 1440, 360, 1320]);
+  const bounds = new Set([0, 1440, startMin, endMin]);
   for (const p of dayPeriods) { bounds.add(p.start); bounds.add(p.end); }
   const sorted = [...bounds].filter((b) => b >= 0 && b <= 1440).sort((a, b) => a - b);
 
@@ -37,7 +41,7 @@ function daySegments(day, periods, baseRate) {
     if (b <= a) continue;
     const mid = (a + b) / 2;
     let state, rate;
-    if (!isOperating(day, mid)) {
+    if (!isOperating(day, mid, startMin, endMin)) {
       state = 'fuera';
     } else {
       // franja de mayor id que cubre el punto medio
@@ -65,7 +69,7 @@ function segStyle(state) {
   return { background: '#14b8a6' }; // custom
 }
 
-const DAY_TO_IDX = { Lunes: 0, Martes: 1, Miércoles: 2, Jueves: 3, Viernes: 4, Sábado: 5 };
+const DAY_TO_IDX = { Lunes: 0, Martes: 1, Miércoles: 2, Jueves: 3, Viernes: 4, Sábado: 5, Domingo: 6 };
 
 // Eje de horas (00h..24h) centrado bajo cada línea; se usa arriba y abajo del calendario.
 function HourAxis() {
@@ -99,6 +103,11 @@ export default function Productividad() {
   const [form, setForm] = useState({ tolva_id: '', dia: 'Lunes', hora_inicio: '06:00', hora_fin: '14:00', consumo_tn_h: '' });
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
+  // Override de la semana por tolva: solo nivel inicial (la ventana de consumo
+  // va en Tolvas; ampliarla puntualmente se hace con franjas).
+  const [weekSettings, setWeekSettings] = useState([]);
+  const [wsForm, setWsForm] = useState({ nivel_inicial_tn: '' });
+  const [savingWs, setSavingWs] = useState(false);
 
   const isPastWeek = weeks?.pasadas?.some((p) => p.id === planId);
   // Semana vigente: aplica el corte en "ahora" (no se edita lo ya pasado).
@@ -121,9 +130,14 @@ export default function Productividad() {
       .catch((e) => setError(e.message));
   };
 
+  const loadWeekSettings = () =>
+    api('/api/plan-tolva-settings')
+      .then(setWeekSettings)
+      .catch(() => setWeekSettings([]));
+
   useEffect(() => {
     setLoading(true);
-    load().finally(() => setLoading(false));
+    Promise.all([load(), loadWeekSettings()]).finally(() => setLoading(false));
   }, [planId, filterTolva]);
 
   useEffect(() => {
@@ -180,13 +194,51 @@ export default function Productividad() {
   };
 
   const showTolvaCol = tolvas.length > 1;
+
+  // Tolva para el calendario / overrides: la filtrada, o la primera.
+  const calTolvaId = filterTolva ? Number(filterTolva) : (tolvas[0]?.id ?? null);
+  const calSettings = weekSettings.find((w) => w.tolva_id === calTolvaId) || null;
+
+  // Sincroniza el formulario con el override de nivel inicial guardado para la
+  // tolva en foco. Vacío = "heredar de Tolvas".
+  useEffect(() => {
+    setWsForm({
+      nivel_inicial_tn: calSettings?.override_nivel_inicial_tn != null ? String(calSettings.override_nivel_inicial_tn) : '',
+    });
+  }, [calTolvaId, weekSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveWs = async () => {
+    if (!calTolvaId) return;
+    setSavingWs(true);
+    setError('');
+    try {
+      await api('/api/plan-tolva-settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          tolva_id: calTolvaId,
+          nivel_inicial_tn: wsForm.nivel_inicial_tn === '' ? null : Number(wsForm.nivel_inicial_tn),
+        }),
+      });
+      await Promise.all([loadWeekSettings(), load()]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingWs(false);
+    }
+  };
+
   if (loading) return <p className={styles.muted}>Cargando…</p>;
 
-  // Tolva para el calendario: la filtrada, o la primera.
-  const calTolvaId = filterTolva ? Number(filterTolva) : (tolvas[0]?.id ?? null);
   const calTolva = tolvas.find((t) => t.id === calTolvaId) || null;
   const baseRate = calTolva && calTolva.consumo_tn_h != null ? Number(calTolva.consumo_tn_h) : 12;
   const calPeriods = list.filter((p) => p.tolva_id === calTolvaId);
+
+  // Ventana de consumo de la tolva (igual para todas las semanas).
+  const startMin = toMin(toHHmm(calTolva?.hora_inicio_consumo ?? '06:00'));
+  const endMin = toMin(toHHmm(calTolva?.hora_fin_consumo ?? '22:00'));
+  // Nivel inicial efectivo de la semana (override ?? defecto tolva).
+  const effNivelInicial = calSettings?.override_nivel_inicial_tn ?? calSettings?.default_nivel_inicial_tn ?? 0;
+  const hasOverride = calSettings && calSettings.override_nivel_inicial_tn != null;
 
   return (
     <div className={styles.page}>
@@ -213,6 +265,35 @@ export default function Productividad() {
       </p>
       {error && <p className={styles.error}>{error}</p>}
 
+      {/* Override de la semana por tolva: solo nivel inicial. La ventana de
+          consumo (inicio Lunes / fin Sábado) va en Tolvas; ampliar el finde se
+          hace con franjas más abajo. */}
+      {calTolva && (
+        <div style={{ margin: '0.5rem 0 1rem', padding: '0.85rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <strong style={{ fontSize: '0.9rem' }}>Nivel inicial de esta semana · {calTolva.nombre || `Tolva ${calTolva.numero}`}</strong>
+            <label style={{ display: 'inline-flex', flexDirection: 'column', fontSize: '0.75rem', color: 'var(--text-muted)', gap: 2 }}>
+              Nivel inicial (tn)
+              <input type="number" min="0" step="0.1" value={wsForm.nivel_inicial_tn} disabled={isPastWeek} placeholder={String(Number(calSettings?.default_nivel_inicial_tn ?? 0))}
+                onChange={(e) => setWsForm((f) => ({ ...f, nivel_inicial_tn: e.target.value }))}
+                className={styles.input} style={{ width: 120 }} />
+              <span style={{ fontSize: '0.68rem' }}>Defecto tolva: {Number(calSettings?.default_nivel_inicial_tn ?? 0)}</span>
+            </label>
+            {!isPastWeek && (
+              <button type="button" className={styles.button} onClick={saveWs} disabled={savingWs}>
+                {savingWs ? 'Guardando…' : 'Guardar y recalcular'}
+              </button>
+            )}
+          </div>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Vacío = hereda el nivel inicial de Tolvas. Solo afecta a <strong>esta semana</strong> y a esta tolva.
+            Ventana de consumo: <strong>{toHHmm(calTolva.hora_inicio_consumo ?? '06:00')}</strong> (Lun) → <strong>{toHHmm(calTolva.hora_fin_consumo ?? '22:00')}</strong> (Sáb), editable en Tolvas. Para consumir el finde, añade una franja.
+            {hasOverride && <span style={{ color: '#14b8a6', fontWeight: 600 }}> · Override de nivel activo.</span>}
+            {isPastWeek && <span style={{ color: 'var(--danger)' }}> · Semana pasada: solo lectura.</span>}
+          </p>
+        </div>
+      )}
+
       {/* Calendario visual de cobertura */}
       <div style={{ margin: '1rem 0 1.5rem', padding: '1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
@@ -222,7 +303,7 @@ export default function Productividad() {
         </div>
         <HourAxis />
         {DAYS.map((day) => {
-          const segs = daySegments(day, calPeriods, baseRate);
+          const segs = daySegments(day, calPeriods, baseRate, startMin, endMin);
           const showNow = isVigente && DAY_TO_IDX[day] === cutoff.dayIdx;
           return (
             <div key={day} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 4 }}>

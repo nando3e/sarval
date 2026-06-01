@@ -24,9 +24,16 @@ export async function recalcPlan(planId, { trigger = 'manual', notify = false } 
   if (!planId) return { ok: false, reason: 'no_plan' };
 
   const tolvasRows = await pool.query(
-    'SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h FROM tolvas WHERE activa = true ORDER BY numero'
+    'SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, hora_inicio_consumo, hora_fin_consumo FROM tolvas WHERE activa = true ORDER BY numero'
   );
   if (tolvasRows.rows.length === 0) return { ok: false, reason: 'no_tolvas' };
+
+  // Overrides por semana y tolva (inicio de consumo / nivel inicial). NULL = heredar tolva.
+  const overrideRows = await pool.query(
+    'SELECT tolva_id, hora_inicio_consumo, nivel_inicial_tn FROM plan_tolva_settings WHERE plan_id = $1',
+    [planId]
+  );
+  const overrideByTolva = new Map(overrideRows.rows.map((r) => [r.tolva_id, r]));
 
   const allTripsRows = await pool.query(
     `SELECT id, trip_number, day, scheduled_time, supplier, tons, is_critical, is_extra, tolva_id
@@ -67,7 +74,19 @@ export async function recalcPlan(planId, { trigger = 'manual', notify = false } 
     const tolvaBoxEntries = allBoxEntriesRows.rows.filter((b) => b.tolva_id === tolva.id);
     const tolvaReadings = allReadingsRows.rows.filter((r) => r.tolva_id === tolva.id);
     const tolvaProductivity = allProductivityRows.rows.filter((p) => p.tolva_id === tolva.id);
-    const { sequence, simulation } = run(tolva, tolvaTrips, tolvaStoppages, tolvaBoxEntries, tolvaReadings, tolvaProductivity);
+
+    // Parámetros efectivos: el override de la semana (si existe y no es NULL)
+    // gana al valor por defecto de la tolva.
+    const ov = overrideByTolva.get(tolva.id);
+    const tolvaParams = {
+      ...tolva,
+      // La ventana de consumo (inicio/fin) viene de la tolva. La ampliación
+      // puntual del finde se hace con franjas, no con override por semana.
+      hora_inicio_consumo: tolva.hora_inicio_consumo,
+      hora_fin_consumo: tolva.hora_fin_consumo,
+      nivel_inicial_tn: ov?.nivel_inicial_tn ?? tolva.nivel_inicial_tn,
+    };
+    const { sequence, simulation } = run(tolvaParams, tolvaTrips, tolvaStoppages, tolvaBoxEntries, tolvaReadings, tolvaProductivity);
 
     if (sequence.length > 0) {
       const seqValues = sequence.map((_, i) => {

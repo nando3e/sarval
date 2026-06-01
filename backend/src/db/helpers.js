@@ -3,7 +3,8 @@ import pool from './pool.js';
 const DAY_ORDER_SQL = `CASE day
   WHEN 'Lunes' THEN 0 WHEN 'Martes' THEN 1 WHEN 'Miércoles' THEN 2
   WHEN 'Jueves' THEN 3 WHEN 'Viernes' THEN 4 WHEN 'Sábado' THEN 5
-  ELSE 6 END`;
+  WHEN 'Domingo' THEN 6
+  ELSE 7 END`;
 
 export { DAY_ORDER_SQL };
 
@@ -53,31 +54,32 @@ export { getMondayOfWeek, getCurrentWeekMonday, getNextWeekMonday };
 export { toLocalDateOnly };
 
 export async function getActivePlanId() {
-  let r = await pool.query(
-    "SELECT id, week_start FROM weekly_plans WHERE status = 'active' ORDER BY week_start DESC LIMIT 1"
-  );
   const currentMonday = getCurrentWeekMonday();
 
-  if (r.rows[0]) {
-    const planId = r.rows[0].id;
-    const rawStart = toLocalDateOnly(r.rows[0].week_start);
-    const planMonday = getMondayOfWeek(rawStart);
-    if (planMonday < currentMonday) {
-      await pool.query("UPDATE weekly_plans SET status = 'archived' WHERE id = $1", [planId]);
-      r = await pool.query(
-        'INSERT INTO weekly_plans (week_start, status) VALUES ($1, $2) RETURNING id',
-        [currentMonday, 'active']
-      );
-      return r.rows[0].id;
-    }
-    return planId;
-  }
-
-  r = await pool.query(
-    'INSERT INTO weekly_plans (week_start, status) VALUES ($1, $2) RETURNING id',
-    [currentMonday, 'active']
+  // Archivar cualquier plan activo cuya semana ya pasó (rollover de semana).
+  await pool.query(
+    "UPDATE weekly_plans SET status = 'archived' WHERE status = 'active' AND week_start < $1",
+    [currentMonday]
   );
-  return r.rows[0].id;
+
+  // ¿Queda un plan activo (semana actual o futura)?
+  const act = await pool.query(
+    "SELECT id FROM weekly_plans WHERE status = 'active' ORDER BY week_start DESC LIMIT 1"
+  );
+  if (act.rows[0]) return act.rows[0].id;
+
+  // Ninguno: encontrar-o-crear el plan de la semana actual y activarlo.
+  // ON CONFLICT (week_start) hace la operación idempotente: si varias peticiones
+  // concurrentes llegan a la vez (el Dashboard lanza ~5), solo se materializa un
+  // plan; las demás reutilizan el existente en vez de duplicar. La restricción
+  // UNIQUE(week_start) lo garantiza a nivel de BBDD.
+  const ins = await pool.query(
+    `INSERT INTO weekly_plans (week_start, status) VALUES ($1, 'active')
+     ON CONFLICT (week_start) DO UPDATE SET status = 'active'
+     RETURNING id`,
+    [currentMonday]
+  );
+  return ins.rows[0].id;
 }
 
 /** Devuelve plan_id: de req.query.plan_id / req.body.plan_id o el plan activo (vigente). */
