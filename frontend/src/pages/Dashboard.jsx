@@ -94,8 +94,16 @@ function tripsByStepFromSequence(sequence, paso) {
     const entry = {
       trip_number: t.trip_number,
       supplier: t.supplier || '',
+      producto: t.producto || '',
       tons: Number(t.tons) || 0,
       critico: !!t.critico,
+      dia: t.day,
+      hora_prevista: t.hora_prevista ? String(t.hora_prevista).slice(0, 5) : '',
+      dia_final: t.dia_final,
+      hora_final: t.hora_final ? String(t.hora_final).slice(0, 5) : '',
+      retraso_h: Number(t.retraso_capacidad_h) || 0,
+      estado: t.estado || '',
+      extra: !!t.viaje_extra,
     };
     if (!map.has(step)) map.set(step, []);
     map.get(step).push(entry);
@@ -117,6 +125,7 @@ export default function Dashboard() {
   const [showReadingForm, setShowReadingForm] = useState(false);
   const [readingForm, setReadingForm] = useState({ dia: 'Lunes', hora: '08:00', nivel_tn: '', nota: '' });
   const [savingReading, setSavingReading] = useState(false);
+  const [selectedStep, setSelectedStep] = useState(null); // paso fijado al hacer clic en el gráfico
 
   const load = useCallback(() => {
     setLoading(true);
@@ -131,6 +140,7 @@ export default function Dashboard() {
         setChartData(chart);
         setSequence(seq);
         setReadings(reads);
+        setSelectedStep(null); // limpia la ficha al cambiar de plan/tolva
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -174,6 +184,13 @@ export default function Dashboard() {
   const currentTolvaConfig = chartTolva ? tolvas.find((t) => t.id === chartTolva.id) : null;
   const paso = currentTolvaConfig?.paso_minutos || 30;
   const tripsByStep = tripsByStepFromSequence(sequence, paso);
+
+  // Clic en cualquiera de los dos gráficos → fija el paso para ver su detalle abajo.
+  const handleChartClick = (e) => {
+    const p = e?.activePayload?.[0]?.payload;
+    if (!p || p.step_index == null) return;
+    setSelectedStep(Math.round(Number(p.step_index)));
+  };
 
   // Marcadores de lecturas manuales de nivel sobre el gráfico de nivel.
   const readingMarkers = readings
@@ -407,7 +424,7 @@ export default function Dashboard() {
 
             <div className={styles.chartPanelStack}>
               <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={levelSawtoothSeries} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                <ComposedChart data={levelSawtoothSeries} margin={{ top: 10, right: 20, left: 10, bottom: 0 }} onClick={handleChartClick} style={{ cursor: 'pointer' }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="step_index"
@@ -419,7 +436,7 @@ export default function Dashboard() {
                     height={0}
                   />
                   <YAxis domain={[0, yDomainMaxFn]} allowDataOverflow={false} tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v)}tn`} width={48} />
-                  <Tooltip content={<LevelTooltip />} />
+                  <Tooltip content={<LevelTooltip />} position={{ y: 170 }} />
                   {stoppageBands.map((b) => (
                     <ReferenceArea key={b.id} x1={b.from} x2={b.to} fill="#94a3b8" fillOpacity={0.18} ifOverflow="extendDomain" />
                   ))}
@@ -443,7 +460,7 @@ export default function Dashboard() {
               </ResponsiveContainer>
 
               <ResponsiveContainer width="100%" height={170}>
-                <ComposedChart data={filteredSeries} margin={{ top: 0, right: 20, left: 10, bottom: 30 }}>
+                <ComposedChart data={filteredSeries} margin={{ top: 0, right: 20, left: 10, bottom: 30 }} onClick={handleChartClick} style={{ cursor: 'pointer' }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="step_index"
@@ -462,7 +479,7 @@ export default function Dashboard() {
                     height={50}
                   />
                   <YAxis domain={[-capacity, capacity]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(v)}tn`} width={48} />
-                  <Tooltip content={(props) => <FlowTooltip {...props} tripsByStep={tripsByStep} />} />
+                  <Tooltip content={(props) => <FlowTooltip {...props} tripsByStep={tripsByStep} />} position={{ y: 60 }} />
                   {stoppageBands.map((b) => (
                     <ReferenceArea key={`f-${b.id}`} x1={b.from} x2={b.to} fill="#94a3b8" fillOpacity={0.18} ifOverflow="extendDomain" />
                   ))}
@@ -473,6 +490,58 @@ export default function Dashboard() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+
+            {/* Ficha de detalle: aparece al hacer clic en un punto del gráfico. */}
+            {selectedStep != null && (() => {
+              const point = filteredSeries.find((s) => s.step_index === selectedStep);
+              const trips = tripsByStep.get(selectedStep) || [];
+              return (
+                <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0 }}>
+                      Detalle · {point ? point.label : `paso ${selectedStep}`}
+                    </h3>
+                    <button type="button" onClick={() => setSelectedStep(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>✕</button>
+                  </div>
+
+                  {trips.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>Sin descargas de camión en este instante.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {trips.map((t, i) => (
+                        <div key={i} style={{ padding: '0.55rem 0.7rem', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg)' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600 }}>
+                              {t.supplier || '(sin proveedor)'}
+                              {t.critico && <span style={{ marginLeft: '0.4rem', padding: '0 0.3rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 700, background: 'rgba(34,197,94,0.25)', border: '1px solid rgba(34,197,94,0.5)', color: '#16a34a' }}>CR</span>}
+                              {t.extra && <span style={{ marginLeft: '0.4rem', padding: '0 0.3rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 700, background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.5)', color: '#d97706' }}>EXTRA</span>}
+                            </span>
+                            <strong style={{ color: '#22c55e' }}>+{Number(t.tons).toFixed(1)} tn</strong>
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                            {t.trip_number || '[indefinido]'}{t.producto ? ` · ${t.producto}` : ''}{t.estado ? ` · ${t.estado}` : ''}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                            Previsto: <strong style={{ color: 'var(--text)' }}>{t.dia} {t.hora_prevista}</strong>
+                            {' → '}Descarga: <strong style={{ color: 'var(--text)' }}>{t.dia_final} {t.hora_final}</strong>
+                            {t.retraso_h > 0 && <span style={{ color: '#d97706' }}> · retraso {t.retraso_h.toFixed(2)} h</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {point && (
+                    <div style={{ marginTop: '0.6rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.8rem' }}>
+                      {Number(point.box_entry_tons) > 0 && <span style={{ color: '#f59e0b' }}>Boxes: <strong>+{Number(point.box_entry_tons).toFixed(2)} tn</strong></span>}
+                      {Number(point.consumption_tons) > 0 && <span style={{ color: '#ef4444' }}>Consumo: <strong>-{Number(point.consumption_tons).toFixed(1)} tn</strong></span>}
+                      <span style={{ color: 'var(--text-muted)' }}>Nivel tras entrada: <strong style={{ color: 'var(--text)' }}>{Number(point.silo_level).toFixed(1)} tn</strong></span>
+                      {point.is_stoppage && <span style={{ color: '#94a3b8' }}>Parada activa</span>}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {readings.filter((r) => !chartTolva || r.tolva_id === chartTolva.id).length > 0 && (
               <div style={{ marginTop: '1rem' }}>
