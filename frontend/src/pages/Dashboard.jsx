@@ -41,6 +41,15 @@ function LevelTooltip({ active, payload }) {
   );
 }
 
+// Un viaje puede tener varios proveedores separados por "|". Mostramos el
+// primero y, si hay más, un "+N" con cuántos quedan (p.ej. "TORRENT +2").
+function formatSupplier(supplier) {
+  const parts = String(supplier || '').split('|').map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} +${parts.length - 1}`;
+}
+
 function FlowTooltip({ active, payload, tripsByStep }) {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload;
@@ -55,6 +64,7 @@ function FlowTooltip({ active, payload, tripsByStep }) {
       {trips.length > 0 ? (
         trips.map((t, i) => (
           <p key={i} style={{ color: '#22c55e', margin: '0.1rem 0' }}>
+            {formatSupplier(t.supplier) && <span style={{ fontWeight: 600 }}>{formatSupplier(t.supplier)} · </span>}
             {t.trip_number || '[indefinido]'}: <strong>+{Number(t.tons).toFixed(1)} tn</strong>
             {t.critico && <span style={{ marginLeft: '0.4rem', padding: '0 0.3rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 700, background: 'rgba(34,197,94,0.25)', border: '1px solid rgba(34,197,94,0.5)' }}>CR</span>}
           </p>
@@ -83,6 +93,7 @@ function tripsByStepFromSequence(sequence, paso) {
     const step = dayIdx * 24 * STEPS_H + hh * STEPS_H + Math.round(mm / (paso || 30));
     const entry = {
       trip_number: t.trip_number,
+      supplier: t.supplier || '',
       tons: Number(t.tons) || 0,
       critico: !!t.critico,
     };
