@@ -4,6 +4,7 @@ import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
 import { authMiddleware } from './middleware/auth.js';
 import { openapiSpec } from './docs/openapi.js';
+import { runMigrations } from './db/migrate.js';
 import authRoutes from './routes/auth.js';
 import parametersRoutes from './routes/parameters.js';
 import planningRoutes from './routes/planning.js';
@@ -78,6 +79,12 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Error interno' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Sarval API listening on http://localhost:${PORT}`);
-});
+// Aplica migraciones pendientes antes de aceptar peticiones; si fallara el
+// runner, arrancamos igualmente (las migraciones logean su error).
+runMigrations()
+  .catch((err) => console.error('[migrate] runner falló:', err.message))
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`Sarval API listening on http://localhost:${PORT}`);
+    });
+  });
