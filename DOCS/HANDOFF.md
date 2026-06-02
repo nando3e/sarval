@@ -1,27 +1,28 @@
 # SARVAL — Handoff / Estado del proyecto
 
 > Documento para retomar el trabajo en una sesión nueva sin perder contexto.
-> Última actualización: **31 may 2026** (sesión 29–31 may: duplicados, ventana de consumo, Domingo).
+> Última actualización: **2 jun 2026** (sesión 29 may – 2 jun: duplicados, ventana de consumo, Domingo, runner de migraciones).
 
-## 0. ⚠️ LO PRIMERO AL RETOMAR (estado de la sesión 29–31 may)
+## 0. ⚠️ LO PRIMERO AL RETOMAR
 
-- **Hay cambios SIN COMMITEAR** en el working tree. El último commit sigue siendo `531fbf3`.
-  Todo lo de esta sesión está en local **pero la BBDD de producción YA está migrada y con datos
-  recalculados** (porque `backend/.env` apunta a prod). Es decir: el **código** falta por
-  commitear/pushear; los **datos y el esquema** ya viven en prod.
-- **Migraciones nuevas YA aplicadas en prod** (no reaplicar a ciegas; todas son idempotentes):
-  `migrate-unique-week.sql`, `migrate-consumo-inicio.sql`, `migrate-consumo-fin.sql`.
-- **Al desplegar el código nuevo**: el esquema ya está; solo viaja el código. Si se desplegara
-  contra una BBDD limpia, las 3 migraciones se ejecutan en orden y son seguras.
-- Cuando el usuario dé el OK → **commitear en lote** (ver §10 lista de archivos tocados).
+- **Todo pusheado a `origin/main`** (último commit de funcionalidad **`1d9b802`**; este handoff va en un commit de docs aparte).
+- **`backend/.env` apunta a la BBDD de PRODUCCIÓN** → todo lo que se prueba en local toca prod.
+  El esquema de prod está al día.
+- **Runner de migraciones automático (NUEVO)**: al arrancar el backend, `runMigrations()`
+  (`backend/src/db/migrate.js`) aplica las migraciones `.sql` pendientes y las registra en la tabla
+  `_migrations`; las ya aplicadas se saltan. **Para añadir una migración: crear el `.sql` y añadir su
+  nombre al final del array `MIGRATIONS` en `migrate.js`.** Ya NO hace falta aplicar SQL a mano.
+- **Servidores de desarrollo**: arrancar con `cd backend && npm run dev` (4000) y `cd frontend && npm run dev` (3000).
 
-Resumen de lo hecho esta sesión (detalle en §4):
-1. **Arreglados los planes duplicados** (semana 10 "vacía") + **candado para que no vuelva a pasar**.
-2. **Bug del motor**: viajes fuera de ventana atascaban la cola → ningún viaje se colocaba. Corregido.
-3. **Ventana de consumo configurable** (inicio Lunes / fin Sábado) + **timeline ampliado a Domingo medianoche**.
-4. **Nivel inicial por semana** y **inicio de consumo** visibles/editables; consumo continuo o ampliable con franjas el finde.
-5. **Auto-refresh** del Dashboard al cambiar parámetros de tolva.
-6. **`DOCS/PROPUESTA_SIMULACION.md`**: diseño del "modo simulación" para una v2 (no implementado).
+Resumen de lo hecho en la sesión 29 may – 2 jun (detalle en §4):
+1. **Planes duplicados** arreglados (semana 10 salía "vacía") + **`UNIQUE(week_start)` + creación idempotente** para que no se repita.
+2. **Bug del motor**: viajes fuera de ventana atascaban la cola → no se colocaba ninguno. Corregido.
+3. **Semana de 7 días**: timeline **Lunes 00:00 → Domingo medianoche**; camiones todo el finde.
+4. **Ventana de consumo configurable** (inicio Lunes / fin Sábado, en Tolvas) + **nivel inicial por semana**; ampliar el finde = poner una franja.
+5. **Dashboard**: gráfico más ancho (1700px), **ficha de detalle al hacer clic** en un punto, tooltips reposicionados, **proveedor en el tooltip**; auto-refresh al cambiar tolva.
+6. **Swagger** accesible desde Configuración › API e integraciones (botón a pestaña nueva).
+7. **Runner de migraciones** (`_migrations`) → resuelve de raíz el caso "faltaba la tabla `webhooks`".
+8. **`DOCS/PROPUESTA_SIMULACION.md`**: diseño del "modo simulación" para una v2 (no implementado).
 
 ## 1. Qué es SARVAL
 App web para planificar las **descargas de camiones en silos (tolvas)** de una planta. Sustituye un Excel + script. Simula el nivel del silo a lo largo de la semana, decide cuándo descarga cada camión (prioridad a los **críticos**), y avisa de retrasos y paradas. Preparada para integrarse con un **bot de n8n/Telegram** (FASE 2, aún no conectado).
@@ -45,23 +46,26 @@ El `backend/.env` apunta a la **MISMA BBDD de producción** (`91.99.128.20:5400/
 - `adminsarval` / `adminsarval123` (superadmin via `.env`, hardcodeado).
 - `testuser` / `testuser123` (en tabla `users`, rol `superadmin`).
 
-### Planes en BBDD ahora mismo (tras la limpieza de duplicados)
-Quedan **5 planes** (antes había 61, la mayoría duplicados vacíos — ver §4.1):
-- **Plan 59 = VIGENTE**: semana 22 (lunes 2026-05-25), 50 viajes ficticios para demos. `seed-demo-week22.js`.
-- **Plan 61 = PRÓXIMA (draft)**: semana 23 (lunes 2026-06-01), 56 viajes.
-- **Plan 28 = archivado**: semana 10 (lunes 2026-03-02), 79 viajes reales del cliente.
-- **Plan 34 = archivado**: semana 11 (lunes 2026-03-09), 77 viajes.
-- **Plan 52 = archivado**: semana 20 (lunes 2026-05-11), sin viajes (una parada + un box sueltos).
+### Planes en BBDD (tras la limpieza de duplicados; cambian cada semana por el rollover)
+Tras limpiar 56 planes duplicados vacíos quedan **6** (1 por semana). A 2 jun 2026:
+- **VIGENTE**: semana 23 (lunes 2026-06-01), plan 61, 56 viajes. *(Era la "próxima"; pasó a vigente sola el 1-jun.)*
+- **PRÓXIMA (draft)**: semana 24 (lunes 2026-06-08), plan 115 (creado solo por `/weeks`).
+- **Archivados**: semana 22 (plan 59, 50 viajes demo), semana 20 (plan 52, parada+box sin viajes), semana 11 (plan 34, 77 viajes), semana 10 (plan 28, 79 viajes reales del cliente).
 
-> ⚠️ **Rollover de semana**: a partir del **lunes 2026-06-01**, `getActivePlanId()` archivará el
-> plan 59 y activará automáticamente el plan de esa semana (el 61, hoy próxima) vía
-> `ON CONFLICT DO UPDATE`. Si quieres mantener la demo de la semana 22 como vigente, habrá que
-> re-seedear o reactivar el 59 manualmente.
+> ⚠️ **Rollover automático**: cada lunes, `getActivePlanId()` archiva el plan de la semana que
+> acaba y activa el de la nueva (vía `ON CONFLICT DO UPDATE`). Por eso el plan vigente cambia solo.
+> La demo (`seed-demo-week22.js`) ya quedó atrás; si hace falta una demo en la semana en curso,
+> re-seedear o crear datos en el plan vigente.
 
 ## 3. Estado del repositorio
-- **Último commit**: `531fbf3` (28 may 2026). **El trabajo de la sesión 29–31 may está SIN COMMITEAR** (ver §0 y §10).
-- **BBDD de producción ya migrada** con TODAS las migraciones (incluidas las 3 nuevas de esta sesión) y todos los planes recalculados con el motor nuevo.
+- **Todo en `origin/main`.** Último commit de funcionalidad: **`1d9b802`** (2 jun 2026); este handoff en commit de docs posterior.
+- **BBDD de producción al día**: el runner de migraciones aplica todo al arrancar (tabla `_migrations`).
 - **Usuario `testuser` ya creado** en BBDD de prod. No hace falta recrearlo.
+
+### Commits de la sesión (29 may – 2 jun), todos en `main`
+`7849c68` ventana consumo + Domingo + anti-duplicados · `afd88fa` proveedor en tooltip ·
+`e83ae4e` gráfico ancho + ficha detalle + tooltip abajo · `aed3957` tooltip nivel a altura del punto ·
+`235d073` Swagger en Configuración · `1d9b802` runner de migraciones.
 
 ## 4. Capacidades del motor y la app
 
@@ -142,6 +146,17 @@ Quedan **5 planes** (antes había 61, la mayoría duplicados vacíos — ver §4
 ### 4.9 Modo demo anonimizado
 - Toggle en menú del avatar (solo `role=superadmin`). Persiste en `app_settings` (key `anonimizar`). Lectura pública `GET /api/branding`. Cambia "SARVAL" → "Planificador de descargas" en sidebar/login/title. No cambia datos.
 
+### 4.10 Runner de migraciones (NUEVO — 2 jun) ⭐
+- `backend/src/db/migrate.js` → `runMigrations()` se ejecuta al arrancar (`server.js`, antes de `listen`).
+- Aplica las `.sql` del array `MIGRATIONS` (en orden) que no consten en la tabla **`_migrations`**, y
+  las registra. Las ya aplicadas se saltan. Si una falla, logea y NO tumba el arranque.
+- Todas las migraciones son **idempotentes** (incluidos los `ADD CONSTRAINT`, guardados con `DO`/`pg_constraint`).
+- **Excluye seeds** (`seed-*.sql`). **No crea las tablas base** (`weekly_plans`, `trips`, `sequence_results`,
+  `silo_simulation`, `users`, `parameters`) — se asumen existentes (se crearon a mano en su día). Para
+  un arranque-desde-cero real haría falta un `schema-base.sql` al principio del array (PENDIENTE, ver §7).
+- **Añadir migración futura**: crear el `.sql` en `backend/src/db/` y añadir su nombre al final de `MIGRATIONS`.
+- Resolvió de raíz el caso "faltaba la tabla `webhooks`" (estaba en `schema-config.sql`, nunca aplicada).
+
 ## 5. ⚠️ Pendiente al desplegar a producción (Dokploy)
 Cambiar en variables de entorno del backend:
 ```
@@ -150,7 +165,7 @@ SUPERADMIN_PASSWORD=<larga, aleatoria>
 JWT_SECRET=<otra cadena larga aleatoria>
 ```
 Opcional: `OPENAPI_PUBLIC=false` para esconder Swagger tras login.
-Recordar: el plan 59 (sem 22, datos ficticios) es el vigente actual. Para la operativa real del cliente, dejar como vigente el plan que toque.
+El plan vigente cambia solo cada lunes (rollover, §2). Para la operativa real, cargar los datos en el plan vigente de la semana en curso.
 
 ## 6. Decisiones PENDIENTES del cliente
 Ver `DOCS/PROPUESTA_MOTOR_SECUENCIACION.md` (Bloques A, B, C):
@@ -158,10 +173,13 @@ Ver `DOCS/PROPUESTA_MOTOR_SECUENCIACION.md` (Bloques A, B, C):
 - **B** Reglas: ¿peor parar planta o retrasar crítico?, nivel mínimo de seguridad, ventana de protección de críticos, orden entre críticos.
 - **C** Boxes flexibles (modo lineal/flexible, tasa máx por box).
 
-## 7. Próximos pasos sugeridos
-1. **Commitear/pushear** el trabajo de la sesión 29–31 may cuando haya OK (§10).
-2. Actualizar la **spec OpenAPI** (`backend/src/docs/openapi.js` + `DOCS/API.openapi.json`) con
-   `/api/plan-tolva-settings` y los campos `hora_inicio_consumo`/`hora_fin_consumo`.
+## 7. Próximos pasos sugeridos / pendientes abiertos
+1. **Spec OpenAPI desactualizada** (`backend/src/docs/openapi.js` + `DOCS/API.openapi.json`): no incluye
+   `/api/plan-tolva-settings`, los campos `hora_inicio_consumo`/`hora_fin_consumo`, ni el modelo nuevo
+   (semana 7 días, ventana de consumo). El texto interno aún dice "Lunes 06:00 → Sábado 22:00". Actualizar.
+2. **`schema-base.sql` para arranque desde cero**: el runner NO crea las tablas base (§4.10). Si se levanta
+   una BBDD nueva, falta crear `weekly_plans`, `trips`, `sequence_results`, `silo_simulation`, `users`,
+   `parameters`. Conviene volcar su esquema a un `schema-base.sql` y ponerlo primero en `MIGRATIONS`.
 3. **Reunión cliente** → respuestas Bloques A/B/C y ajustar el motor.
 4. Modelar **duración de descarga + 1 boca/tolva** (cola física), probablemente bajando el paso.
 5. **Webhooks por evento** y **endpoints del bot** (n8n/Telegram), usando `trigger` + `newly_delayed`.
@@ -182,29 +200,31 @@ Ver `DOCS/PROPUESTA_MOTOR_SECUENCIACION.md` (Bloques A, B, C):
 - **Local sin pushear** hasta su OK; commitear en lote cuando lo pida.
 - Comunicación en **español** (algo para el cliente en **catalán**).
 
-## 10. Archivos tocados en la sesión 29–31 may (para el commit)
+## 10. Mapa de archivos clave tocados en la sesión (ya commiteados, ver §3)
 **Backend:**
 - `src/engine/simulator.js` — 7 días/Domingo, ventana de consumo, franja activa consumo, fix deadlock cola, respeta nivel 0.
 - `src/services/recalc.js` — pasa `hora_inicio/fin_consumo` y nivel inicial efectivo (override ?? tolva).
 - `src/db/helpers.js` — `getActivePlanId` idempotente (`ON CONFLICT`); `DAY_ORDER_SQL` con Domingo.
+- `src/db/migrate.js` — **NUEVO** runner de migraciones (§4.10).
 - `src/routes/planning.js` — `/weeks` elige plan con más viajes; próxima idempotente.
-- `src/routes/tolvas.js` — `hora_inicio_consumo` + `hora_fin_consumo` (GET/POST/PUT, afectan sim).
+- `src/routes/tolvas.js` — `hora_inicio_consumo` + `hora_fin_consumo`.
 - `src/routes/dashboard.js` — `DAY_ORDER` con Domingo.
 - `src/routes/planTolvaSettings.js` — **NUEVO** (override de nivel inicial por semana/tolva).
-- `src/server.js` — monta `/api/plan-tolva-settings`.
-- `src/db/migrate-unique-week.sql` — **NUEVO** (dedup + `UNIQUE(week_start)`). *Aplicada.*
-- `src/db/migrate-consumo-inicio.sql` — **NUEVO** (`tolvas.hora_inicio_consumo` + tabla `plan_tolva_settings`). *Aplicada.*
-- `src/db/migrate-consumo-fin.sql` — **NUEVO** (`tolvas.hora_fin_consumo`). *Aplicada.*
+- `src/server.js` — monta `/api/plan-tolva-settings`; ejecuta `runMigrations()` al arrancar.
+- `src/db/migrate-unique-week.sql`, `migrate-consumo-inicio.sql`, `migrate-consumo-fin.sql` — **NUEVAS** migraciones.
+- `src/db/migrate-tolvas.sql` — `ADD CONSTRAINT` ahora idempotentes (para el runner).
+- `src/db/schema-config.sql` — ya existía; ahora aplicada por el runner (creó `webhooks`).
 - `scripts/cleanup-empty-plans.js` — **NUEVO** (borra planes vacíos; ya ejecutado).
 
 **Frontend:**
-- `src/pages/Tolvas.jsx` — columnas Inicio/Fin consumo + iconos ⓘ; refresca `TolvaContext` y emite `sarval:tolva-updated` al guardar.
+- `src/pages/Tolvas.jsx` — columnas Inicio/Fin consumo + iconos ⓘ; refresca `TolvaContext` y emite `sarval:tolva-updated`.
 - `src/pages/Productividad.jsx` — calendario 7 días, recolor por ventana, panel "Nivel inicial de esta semana", franjas libres.
-- `src/pages/Dashboard.jsx` — arrays de día con Domingo; escucha `sarval:tolva-updated` para recargar.
+- `src/pages/Dashboard.jsx` + `Dashboard.module.css` — Domingo; ancho 1700px; ficha de detalle al clic; tooltips reposicionados; proveedor en tooltip; auto-refresh por `sarval:tolva-updated`.
+- `src/pages/Configuracion.jsx` — botón "Abrir Swagger UI" + enlace al spec.
 
 **Docs:**
 - `DOCS/PROPUESTA_SIMULACION.md` — **NUEVO** (diseño del modo simulación para v2).
-- `DOCS/HANDOFF.md` — este documento (actualizado).
+- `DOCS/HANDOFF.md` — este documento.
 
 ## 11. Artefactos importantes del repo
 - `backend/src/engine/simulator.js` — motor.
