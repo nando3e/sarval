@@ -173,6 +173,17 @@ export default function Configuracion() {
           <p className={styles.muted}>Copia y pega en n8n u otras herramientas para configurar llamadas a la API.</p>
 
           <div className={styles.block}>
+            <h3 className={styles.h3}>Documentación interactiva (Swagger)</h3>
+            <p className={styles.muted}>Explora y prueba todos los endpoints en una pestaña aparte. Usa el botón <strong>Authorize</strong> y pega tu token para probar las rutas protegidas.</p>
+            <div className={styles.row}>
+              <button type="button" className={styles.button} onClick={() => window.open('/api/docs', '_blank', 'noopener,noreferrer')}>
+                Abrir Swagger UI ↗
+              </button>
+              <a className={styles.copyBtn} href="/api/docs.json" target="_blank" rel="noopener noreferrer">Ver spec OpenAPI (JSON)</a>
+            </div>
+          </div>
+
+          <div className={styles.block}>
             <h3 className={styles.h3}>Token (JWT)</h3>
             <div className={styles.row}>
               <code className={styles.code}>{token ? `${token.slice(0, 30)}…` : 'Inicia sesión para ver el token'}</code>
