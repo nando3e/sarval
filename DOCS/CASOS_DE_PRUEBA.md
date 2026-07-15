@@ -102,3 +102,17 @@
 - [ ] Eventos se emiten a las URLs configuradas.
 - [ ] Endpoint de identificación de viaje (matrícula, o proveedor+producto+fecha) devuelve el viaje correcto.
 - [ ] Asociación de teléfono/telegram_id al viaje.
+
+## 14. Modo simulación
+- [ ] "Simular cambios" solo visible en vigente/próxima (no en historial).
+- [ ] Al entrar: aura roja + cartel "MODO SIMULACIÓN" visibles en TODAS las vistas; selector de semana bloqueado ("Simulando sobre: Semana X").
+- [ ] Cambios en simulación (parada, viaje extra, franja, box) actualizan gráfico/KPIs/secuencia en vivo; el plan real queda intacto (verificar en otra pestaña sin simular).
+- [ ] Tolvas: edición deshabilitada con nota (config global). Dashboard: crear/borrar lecturas de nivel deshabilitado con nota.
+- [ ] "Aplicar cambios" muestra el diff (tablas + KPIs real vs. simulación) y pide confirmación; tras aplicar, el plan real refleja los cambios con el MISMO plan_id y el clon desaparece.
+- [ ] "Cancelar simulación" (con confirmación) borra el clon; el plan real no cambia en nada.
+- [ ] Ningún webhook/alerta durante la simulación (ni por recalculate con notify, ni upload, ni viaje extra/editar/desviar, ni parada); al aplicar sí se emiten sobre el plan real.
+- [ ] `/weeks` y el bot nunca ven el clon (la "próxima" no se ve suplantada por un clon con viajes).
+- [ ] Refresh a mitad de simulación → banner "Tienes una simulación abierta" con Retomar/Descartar.
+- [ ] Segundo intento de simular con una abierta → 409 y el frontend retoma la existente.
+- [ ] Si el plan real cambia mientras se simula (p. ej. bot) → el diff marca `base_changed` y el modal lo avisa.
+- [ ] Janitor: clon con >24 h se borra al arrancar el backend.

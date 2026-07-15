@@ -35,6 +35,7 @@ const MIGRATIONS = [
   'migrate-consumo-fin.sql',     // tolvas.hora_fin_consumo
   'migrate-unique-week.sql',     // dedup + UNIQUE(week_start)
   'migrate-drop-chofer-proveedor.sql',
+  'migrate-simulation-mode.sql', // índice único parcial + columnas de clon (modo simulación)
 ];
 
 export async function runMigrations() {

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { resolvePlanId } from '../db/helpers.js';
+import { resolvePlanId, isSimulationPlan } from '../db/helpers.js';
 import { notifyWebhooks } from '../services/webhookEmitter.js';
 import { recalcPlan } from '../services/recalc.js';
 
@@ -42,7 +42,7 @@ router.post('/', async (req, res) => {
       [parseInt(tolva_id, 10), planId, tipo || 'mantenimiento', descripcion || '', dia, hora_inicio, hora_fin]
     );
     const stoppage = r.rows[0];
-    await notifyWebhooks('stoppage_created', stoppage);
+    if (!(await isSimulationPlan(stoppage.plan_id))) await notifyWebhooks('stoppage_created', stoppage);
     if (stoppage.plan_id) await recalcPlan(stoppage.plan_id, { trigger: 'stoppage_create' });
     res.status(201).json(stoppage);
   } catch (err) {

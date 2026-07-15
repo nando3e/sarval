@@ -4,6 +4,7 @@ import { logout, api } from '../api';
 import { useTheme } from '../context/ThemeContext';
 import { useBranding } from '../context/BrandingContext';
 import WeekSelector from './WeekSelector';
+import SimulationBanner from './SimulationBanner';
 import styles from './Layout.module.css';
 
 const navItems = [
@@ -148,6 +149,7 @@ export default function Layout() {
         </div>
       </aside>
       <main className={styles.main}>
+        <SimulationBanner />
         <Outlet />
       </main>
     </div>

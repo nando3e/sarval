@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useTolvas } from '../context/TolvaContext';
+import { usePlan } from '../context/PlanContext';
 import styles from './Tables.module.css';
+
+// La config de tolva es GLOBAL (no se clona por plan): editarla durante una
+// simulación afectaría también al plan real, así que se bloquea.
+const SIM_HINT = 'No editable en modo simulación: la configuración de tolva es global y afectaría al plan real.';
 
 const PARAM_FIELDS = [
   { key: 'capacidad_tn', label: 'Capacidad (tn)', step: '0.1' },
@@ -36,6 +41,7 @@ function InfoIcon({ text }) {
 
 export default function Tolvas() {
   const { loadTolvas } = useTolvas();
+  const { isSimulating } = usePlan();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -122,14 +128,17 @@ export default function Tolvas() {
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.h1}>Tolvas</h1>
-        <button type="button" className={styles.button} onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Cancelar' : 'Nueva tolva'}
-        </button>
+        {!isSimulating && (
+          <button type="button" className={styles.button} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? 'Cancelar' : 'Nueva tolva'}
+          </button>
+        )}
       </div>
       <p className={styles.muted}>Cada tolva tiene sus propios parámetros de simulación. Los viajes se asignan a una tolva concreta.</p>
+      {isSimulating && <p className={styles.error}>🔴 {SIM_HINT}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
-      {showForm && (
+      {showForm && !isSimulating && (
         <form onSubmit={handleAdd} className={styles.form} style={{ marginBottom: '1.5rem' }}>
           <input type="number" min="1" placeholder="Nº" value={newTolva.numero} onChange={(e) => setNewTolva((f) => ({ ...f, numero: e.target.value }))} className={styles.input} style={{ width: 60 }} required />
           <input placeholder="Nombre (opcional)" value={newTolva.nombre} onChange={(e) => setNewTolva((f) => ({ ...f, nombre: e.target.value }))} className={styles.input} style={{ minWidth: 160 }} />
@@ -211,14 +220,16 @@ export default function Tolvas() {
                     <td>{String(t.hora_inicio_consumo || '06:00').slice(0, 5)}</td>
                     <td>{String(t.hora_fin_consumo || '22:00').slice(0, 5)}</td>
                     <td>
-                      <label className={styles.toggleWrap}>
-                        <input type="checkbox" checked={!!t.activa} onChange={() => toggleActiva(t)} className={styles.toggleInput} />
+                      <label className={styles.toggleWrap} title={isSimulating ? SIM_HINT : undefined}>
+                        <input type="checkbox" checked={!!t.activa} onChange={() => toggleActiva(t)} className={styles.toggleInput} disabled={isSimulating} />
                         <span className={styles.toggleSlider} />
                         <span className={styles.toggleLabel}>{t.activa ? 'Activa' : 'Inactiva'}</span>
                       </label>
                     </td>
                     <td className={styles.actions}>
-                      <button type="button" className={styles.btnSmall} onClick={() => startEdit(t)}>Editar</button>
+                      {!isSimulating && (
+                        <button type="button" className={styles.btnSmall} onClick={() => startEdit(t)}>Editar</button>
+                      )}
                     </td>
                   </tr>
                 )

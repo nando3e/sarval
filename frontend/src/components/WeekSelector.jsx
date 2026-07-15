@@ -5,9 +5,10 @@ import styles from './WeekSelector.module.css';
 const HISTORIAL_EN_DROPDOWN = 8;
 
 export default function WeekSelector() {
-  const { weeks, planId, setPlanId, loadingWeeks } = usePlan();
+  const { weeks, planId, setPlanId, loadingWeeks, isSimulating, simulation, startSimulation } = usePlan();
   const { vigente, proxima, pasadas } = weeks;
   const [showHistorialModal, setShowHistorialModal] = useState(false);
+  const [startingSim, setStartingSim] = useState(false);
   const selectRef = useRef(null);
 
   const currentLabel = planId == null && vigente
@@ -50,6 +51,35 @@ export default function WeekSelector() {
     );
   }
 
+  // En simulación el selector se bloquea: no se puede cambiar de semana hasta
+  // aplicar o cancelar. Se muestra la semana base sobre la que se simula.
+  if (isSimulating) {
+    const baseLabel =
+      simulation?.parentId === proxima?.id ? proxima?.week_label : vigente?.week_label || 'Semana vigente';
+    return (
+      <div className={styles.wrap}>
+        <span className={styles.label}>Semana</span>
+        <span className={styles.simLocked} title={baseLabel}>
+          🔴 Simulando sobre: {baseLabel}
+        </span>
+      </div>
+    );
+  }
+
+  // Solo se puede simular la semana vigente o la próxima (nunca el historial).
+  const puedeSimular = planId == null || (proxima && planId === proxima.id);
+
+  const handleStartSimulation = async () => {
+    setStartingSim(true);
+    try {
+      await startSimulation();
+    } catch (err) {
+      window.alert(err.message || 'No se pudo iniciar la simulación');
+    } finally {
+      setStartingSim(false);
+    }
+  };
+
   return (
     <div className={styles.wrap}>
       <label className={styles.label} htmlFor="week-select">Semana</label>
@@ -77,6 +107,18 @@ export default function WeekSelector() {
           </optgroup>
         )}
       </select>
+
+      {puedeSimular && (
+        <button
+          type="button"
+          className={styles.simBtn}
+          onClick={handleStartSimulation}
+          disabled={startingSim}
+          title="Probar cambios sin tocar el plan real"
+        >
+          {startingSim ? 'Preparando…' : '🧪 Simular cambios'}
+        </button>
+      )}
 
       {showHistorialModal && pasadas?.length > 0 && (
         <div className={styles.modalBackdrop} onClick={() => setShowHistorialModal(false)} role="presentation">

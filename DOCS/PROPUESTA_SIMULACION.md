@@ -1,6 +1,7 @@
 # Propuesta: Modo Simulación (para v2)
 
-> Documento de diseño. **No implementado todavía.** Sirve como base para una v2.
+> Documento de diseño. **IMPLEMENTADO en julio 2026** (cambio OpenSpec
+> `modo-simulacion`; endpoints en `DOCS/API.md` §Modo simulación).
 > Escrito tras la sesión de mayo 2026 (extensión a Domingo, ventana de consumo,
 > prevención de planes duplicados con `UNIQUE(week_start)`).
 
@@ -177,25 +178,31 @@ backup) para restaurar al cancelar.
   ficticios a todos (otros usuarios, n8n, dashboards). Para la semana **vigente** eso es
   inaceptable. Solo valdría si nadie más lee el plan a la vez. → Descartada para un sistema vivo.
 
-## 13. Checklist de implementación (v2)
+## 13. Checklist de implementación (v2) — COMPLETADO julio 2026
 
-- [ ] Migración: índice único parcial; columnas `parent_plan_id`, `simulation_owner`.
-- [ ] `POST /api/planning/simulation` (clonar hijos del plan).
-- [ ] `POST /api/planning/simulation/:id/apply` (transacción de sobrescritura + recalc notify).
-- [ ] `DELETE /api/planning/simulation/:id` (borrar clon + hijos).
-- [ ] `recalcPlan` siempre `notify:false` mientras `status='simulation'` (o por flag explícito).
-- [ ] `PlanContext`: `isSimulating`, `simulationPlanId`, routing de `__SARVAL_PLAN_ID`.
-- [ ] `Layout`: aura + cartel rojo + barra "Aplicar/Cancelar".
-- [ ] Botón "Simular cambios"; bloquear selector de semana y edición de Tolvas en simulación.
-- [ ] Janitor de clones huérfanos.
-- [ ] Aviso de "plan base cambió" al aplicar (update perdido).
+- [x] Migración: índice único parcial; columnas `parent_plan_id`, `simulation_owner` (+ `base_fingerprint`) → `migrate-simulation-mode.sql`.
+- [x] `POST /api/planning/simulation` (clonar hijos del plan, por introspección de columnas).
+- [x] `POST /api/planning/simulation/:id/apply` (transacción de sobrescritura + recalc notify).
+- [x] `DELETE /api/planning/simulation/:id` (borrar clon + hijos).
+- [x] `recalcPlan` siempre `notify:false` mientras `status='simulation'` (+ guardas en webhooks directos de trips/stoppages/upload).
+- [x] `PlanContext`: `isSimulating`, `simulation`, routing de `__SARVAL_PLAN_ID` (+ `GET /mine` para retomar tras refresh).
+- [x] `Layout`: aura + cartel rojo + barra "Aplicar/Cancelar" (`SimulationBanner.jsx`).
+- [x] Botón "Simular cambios"; bloquear selector de semana y edición de Tolvas en simulación (+ lecturas de nivel, §14).
+- [x] Janitor de clones huérfanos (>24 h, al arrancar y cada 6 h).
+- [x] Aviso de "plan base cambió" al aplicar (fingerprint del padre al clonar; `base_changed` en el diff).
 
-## 14. Decisiones pendientes antes de implementar
+## 14. Decisiones (cerradas en julio 2026)
 
-- ¿Las lecturas de nivel (`level_readings`) son editables en simulación o solo se arrastran?
-- ¿Se permite simular sobre semanas **pasadas** (archived) o solo vigente/próxima?
-- ¿"Aplicar" pide confirmación explícita y muestra un resumen del diff (qué cambia respecto al real)?
-- ¿La simulación es por usuario o compartida por todo el equipo de supervisión?
+- **Lecturas de nivel (`level_readings`)**: NO editables en simulación, solo se arrastran
+  (se clonan tal cual). Son hechos medidos, no decisiones; si fueran editables, un "Aplicar"
+  sobrescribiría mediciones reales con datos inventados. Para "¿y si el nivel fuera otro?"
+  ya sirve el nivel inicial de semana (`plan_tolva_settings`), que sí se simula.
+  *(Implementado según esta recomendación.)*
+- **Semanas simulables**: solo **vigente y próxima**. Las archivadas no se simulan.
+- **"Aplicar"**: pide **confirmación explícita** y muestra el **resumen del diff** (§19)
+  antes de sobrescribir → el diff pasa de opcional a parte del MVP.
+- **Ámbito**: la simulación es **por usuario** (`simulation_owner`); cada supervisor tiene
+  su propio clon. El cambio aplicado, evidentemente, es para todos (sobrescribe el plan real).
 
 ## 15. Artefactos relacionados del repo
 - `backend/src/engine/simulator.js` — motor (holístico, justifica la simulación global).

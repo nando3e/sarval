@@ -112,7 +112,7 @@ function tripsByStepFromSequence(sequence, paso) {
 }
 
 export default function Dashboard() {
-  const { planId, weeks } = usePlan();
+  const { planId, weeks, isSimulating } = usePlan();
   const { tolvas } = useTolvas();
   const [data, setData] = useState(null);
   const [chartData, setChartData] = useState(null);
@@ -168,9 +168,11 @@ export default function Dashboard() {
     : (planId === weeks.proxima?.id
       ? weeks.proxima
       : weeks.pasadas?.find((item) => item.id === planId) || week);
-  const weekScopeLabel = planId == null
-    ? 'Semana actual'
-    : (planId === weeks.proxima?.id ? 'Próxima semana' : 'Semana histórica');
+  const weekScopeLabel = isSimulating
+    ? 'Simulación'
+    : planId == null
+      ? 'Semana actual'
+      : (planId === weeks.proxima?.id ? 'Próxima semana' : 'Semana histórica');
 
   const baseFiltered = dayFilter === 'all' ? series : series.filter((s) => s.day === dayFilter);
   const filteredSeries = baseFiltered.map((s) => ({
@@ -369,13 +371,19 @@ export default function Dashboard() {
             {activeDays.map((d) => (
               <button key={d} type="button" className={dayFilter === d ? styles.dayBtnActive : styles.dayBtn} onClick={() => setDayFilter(d)}>{d}</button>
             ))}
-            <button type="button" className={styles.dayBtn} onClick={openReadingForm} title="Registrar el nivel real medido en el silo. Reancla la simulación y recalcula la secuencia.">
-              + Registrar nivel real
-            </button>
+            {isSimulating ? (
+              <span className={styles.muted} style={{ alignSelf: 'center', fontSize: '0.78rem' }} title="Las lecturas son hechos medidos del plan real: no se pueden crear ni borrar en una simulación. Se arrastran del plan real al simular.">
+                🔴 Lecturas bloqueadas en simulación
+              </span>
+            ) : (
+              <button type="button" className={styles.dayBtn} onClick={openReadingForm} title="Registrar el nivel real medido en el silo. Reancla la simulación y recalcula la secuencia.">
+                + Registrar nivel real
+              </button>
+            )}
           </div>
         </div>
 
-        {showReadingForm && (
+        {showReadingForm && !isSimulating && (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '0.75rem', margin: '0.5rem 0 1rem', padding: '0.85rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', width: '100%' }}>
               Nivel real medido en <strong>{chartTolva?.nombre || `Tolva ${chartTolva?.numero}`}</strong>. La hora se redondea al paso de {paso} min. Al guardar se reancla la simulación y se recalcula la secuencia.
@@ -554,7 +562,9 @@ export default function Dashboard() {
                         <span style={{ color: '#a855f7', fontWeight: 600 }}>{r.dia} {String(r.hora).slice(0, 5)}</span>
                         <strong>{Number(r.nivel_tn).toFixed(1)} tn</strong>
                         {r.nota ? <span style={{ color: 'var(--text-muted)' }}>· {r.nota}</span> : null}
-                        <button type="button" onClick={() => deleteReading(r.id)} title="Eliminar lectura y recalcular" style={{ border: 'none', background: 'transparent', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }}>✕</button>
+                        {!isSimulating && (
+                          <button type="button" onClick={() => deleteReading(r.id)} title="Eliminar lectura y recalcular" style={{ border: 'none', background: 'transparent', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1 }}>✕</button>
+                        )}
                       </span>
                     ))}
                 </div>

@@ -41,6 +41,11 @@
 | Planificación | GET | `/api/planning/sequence` |
 | Planificación | GET | `/api/planning/simulation` |
 | Planificación | POST | `/api/planning/recalculate` |
+| Modo simulación | POST | `/api/planning/simulation` |
+| Modo simulación | GET | `/api/planning/simulation/mine` |
+| Modo simulación | GET | `/api/planning/simulation/:id/diff` |
+| Modo simulación | POST | `/api/planning/simulation/:id/apply` |
+| Modo simulación | DELETE | `/api/planning/simulation/:id` |
 | Viajes | GET | `/api/trips` |
 | Viajes | GET | `/api/trips/:id` |
 | Viajes | POST | `/api/trips/extra` |
@@ -471,6 +476,64 @@ No requiere body.
 curl -X POST http://localhost:4000/api/planning/recalculate \
   -H "Authorization: Bearer <token>"
 ```
+
+---
+
+## Modo simulación
+
+Sandbox para probar cambios sin tocar el plan real. Al entrar, el backend **clona el plan** (vigente o próxima) en un plan aislado con `status = 'simulation'`; todos los endpoints normales funcionan sobre el clon pasándole su `plan_id`. Los recálculos del clon **nunca emiten webhooks ni alertas** (n8n/Telegram no ven nada); solo el "Aplicar" final notifica, sobre el plan real.
+
+Reglas: máximo **una simulación abierta por usuario**; solo puede operarla su propietario (o un superadmin); los clones son invisibles para `/weeks`, para la resolución del plan activo y para el bot; un janitor borra los clones con más de 24 h.
+
+### `POST /api/planning/simulation`
+
+Entra en modo simulación. Body opcional `{ "plan_id": 59 }` (por defecto, el plan activo). Solo semana vigente o próxima.
+
+**Respuesta 201:**
+```json
+{ "simulation_plan_id": 105, "parent_plan_id": 59 }
+```
+
+**Respuesta 409** si el usuario ya tiene una simulación abierta (incluye su `simulation_plan_id` para retomarla).
+
+### `GET /api/planning/simulation/mine`
+
+Simulación abierta del usuario actual, o `null`. Permite retomarla tras recargar la página.
+
+**Respuesta 200:**
+```json
+{ "simulation_plan_id": 105, "parent_plan_id": 59, "week_start": "2026-07-13", "created_at": "2026-07-15T09:30:00Z" }
+```
+
+### `GET /api/planning/simulation/:id/diff`
+
+Resumen de cambios del clon respecto al plan real: altas/bajas/modificados por tabla, KPIs comparados y `base_changed` (el plan real cambió desde el clonado — p. ej. por el bot).
+
+**Respuesta 200:**
+```json
+{
+  "simulation_plan_id": 105,
+  "parent_plan_id": 59,
+  "tables": [
+    { "tabla": "trips", "etiqueta": "Viajes", "altas": 1, "bajas": 0, "modificados": 2 },
+    { "tabla": "stoppages", "etiqueta": "Paradas", "altas": 1, "bajas": 0, "modificados": 0 }
+  ],
+  "hay_cambios": true,
+  "kpis": {
+    "real": { "viajes_con_retraso": 2, "horas_paradas": 1.5, "stock_minimo": 4.2 },
+    "simulacion": { "viajes_con_retraso": 3, "horas_paradas": 5.5, "stock_minimo": 0 }
+  },
+  "base_changed": false
+}
+```
+
+### `POST /api/planning/simulation/:id/apply`
+
+Aplica la simulación: en una transacción, los datos del clon sobrescriben al plan real (**el `id` del plan real no cambia**: las referencias de n8n siguen valiendo) y el clon se borra. Después recalcula el plan real con `notify: true` (ahora sí se emiten webhooks/alertas por los cambios ya reales). Devuelve el diff aplicado y el resultado del recálculo.
+
+### `DELETE /api/planning/simulation/:id`
+
+Cancela la simulación: borra el clon y todos sus datos. El plan real queda intacto.
 
 ---
 

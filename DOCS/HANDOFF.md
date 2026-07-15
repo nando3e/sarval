@@ -22,7 +22,7 @@ Resumen de lo hecho en la sesión 29 may – 2 jun (detalle en §4):
 5. **Dashboard**: gráfico más ancho (1700px), **ficha de detalle al hacer clic** en un punto, tooltips reposicionados, **proveedor en el tooltip**; auto-refresh al cambiar tolva.
 6. **Swagger** accesible desde Configuración › API e integraciones (botón a pestaña nueva).
 7. **Runner de migraciones** (`_migrations`) → resuelve de raíz el caso "faltaba la tabla `webhooks`".
-8. **`DOCS/PROPUESTA_SIMULACION.md`**: diseño del "modo simulación" para una v2 (no implementado).
+8. **`DOCS/PROPUESTA_SIMULACION.md`**: diseño del "modo simulación" para una v2 → **IMPLEMENTADO en julio 2026** (ver §Modo simulación de `DOCS/API.md`; cambio OpenSpec `modo-simulacion`).
 
 ## 1. Qué es SARVAL
 App web para planificar las **descargas de camiones en silos (tolvas)** de una planta. Sustituye un Excel + script. Simula el nivel del silo a lo largo de la semana, decide cuándo descarga cada camión (prioridad a los **críticos**), y avisa de retrasos y paradas. Preparada para integrarse con un **bot de n8n/Telegram** (FASE 2, aún no conectado).
@@ -184,7 +184,10 @@ Ver `DOCS/PROPUESTA_MOTOR_SECUENCIACION.md` (Bloques A, B, C):
 4. Modelar **duración de descarga + 1 boca/tolva** (cola física), probablemente bajando el paso.
 5. **Webhooks por evento** y **endpoints del bot** (n8n/Telegram), usando `trigger` + `newly_delayed`.
 6. Endurecer en backend el bloqueo de "no editar el pasado" en productividad (hoy es UI).
-7. **Modo simulación** para supervisores → ver `DOCS/PROPUESTA_SIMULACION.md` (diseño listo para v2).
+7. ~~**Modo simulación** para supervisores~~ → **HECHO (julio 2026)**: plan clon `status='simulation'`,
+   endpoints `/api/planning/simulation` (POST, `/mine`, `/:id/diff`, `/:id/apply`, DELETE), aura+cartel
+   en frontend, webhooks silenciados en clones, janitor de huérfanos. Ver `DOCS/PROPUESTA_SIMULACION.md`
+   (diseño) y `DOCS/API.md` §Modo simulación. Pendiente de la v2.2: simular config global de tolva.
 
 ### Estrategia para el bot (FASE 2)
 - **n8n para todo** (no código). Llamadas a SARVAL vía **HTTP nodes** con la spec OpenAPI.
@@ -236,6 +239,9 @@ Ver `DOCS/PROPUESTA_MOTOR_SECUENCIACION.md` (Bloques A, B, C):
 - `backend/src/db/migrate-*.sql` — migraciones (todas aplicadas en prod).
 - `DOCS/API.md` / `DOCS/API.openapi.json` — doc API (pendiente actualizar con lo nuevo).
 - `DOCS/PROPUESTA_MOTOR_SECUENCIACION.md` — preguntas pendientes al cliente.
-- `DOCS/PROPUESTA_SIMULACION.md` — diseño del modo simulación (v2).
+- `DOCS/PROPUESTA_SIMULACION.md` — diseño del modo simulación (implementado en julio 2026).
+- `backend/src/services/simulationPlans.js` — ciclo de vida de los clones de simulación (lista única `DATA_TABLES`).
+- `backend/src/routes/simulation.js` — API del modo simulación.
+- `frontend/src/components/SimulationBanner.jsx` — aura, cartel, retomar y modal de diff.
 - `DOCS/CASOS_DE_PRUEBA.md` — checklist QA.
 - `frontend/src/context/` — `PlanContext` (plan activo), `TolvaContext` (tolvas), `BrandingContext` (demo).

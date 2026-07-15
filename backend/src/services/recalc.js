@@ -1,5 +1,5 @@
 import pool from '../db/pool.js';
-import { DAY_ORDER_SQL } from '../db/helpers.js';
+import { DAY_ORDER_SQL, isSimulationPlan } from '../db/helpers.js';
 import { run } from '../engine/simulator.js';
 import { notifyWebhooks } from './webhookEmitter.js';
 import { checkAlerts } from './alertChecker.js';
@@ -22,6 +22,11 @@ import { checkAlerts } from './alertChecker.js';
  */
 export async function recalcPlan(planId, { trigger = 'manual', notify = false } = {}) {
   if (!planId) return { ok: false, reason: 'no_plan' };
+
+  // Los planes de simulación recalculan SIEMPRE en silencio, pida lo que pida
+  // el llamante: ningún webhook/alerta debe salir por cambios ficticios. Solo
+  // el "Aplicar" final notifica, y lo hace sobre el plan real.
+  if (notify && (await isSimulationPlan(planId))) notify = false;
 
   const tolvasRows = await pool.query(
     'SELECT id, numero, nombre, capacidad_tn, consumo_tn_h, nivel_inicial_tn, paso_minutos, nivel_minimo_alerta_tn, max_espera_critico_h, hora_inicio_consumo, hora_fin_consumo FROM tolvas WHERE activa = true ORDER BY numero'

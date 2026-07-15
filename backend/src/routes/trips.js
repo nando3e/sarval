@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { resolvePlanId, DAY_ORDER_SQL } from '../db/helpers.js';
+import { resolvePlanId, DAY_ORDER_SQL, isSimulationPlan } from '../db/helpers.js';
 import { notifyWebhooks } from '../services/webhookEmitter.js';
 import { recalcPlan } from '../services/recalc.js';
 
@@ -59,7 +59,7 @@ router.post('/extra', async (req, res) => {
       [planId, tripNumber, day, scheduled_time, supplier, prod, Number(tons), !!is_critical, parseInt(tolva_id, 10)]
     );
     const trip = r.rows[0];
-    await notifyWebhooks('trip_extra_added', trip);
+    if (!(await isSimulationPlan(planId))) await notifyWebhooks('trip_extra_added', trip);
     await recalcPlan(planId, { trigger: 'trip_create' });
     res.status(201).json(trip);
   } catch (err) {
@@ -92,7 +92,7 @@ router.put('/:id', async (req, res) => {
     );
     if (r.rows.length === 0) return res.status(404).json({ error: 'Viaje no encontrado' });
     const updated = r.rows[0];
-    await notifyWebhooks('trip_updated', updated);
+    if (!(await isSimulationPlan(updated.plan_id))) await notifyWebhooks('trip_updated', updated);
     if (updated.plan_id) await recalcPlan(updated.plan_id, { trigger: 'trip_update' });
     res.json(updated);
   } catch (err) {
@@ -129,7 +129,7 @@ router.post('/:id/divert', async (req, res) => {
     // Recálculo estándar de todo el plan (cubre ambas tolvas afectadas).
     await recalcPlan(trip.plan_id, { trigger: 'divert' });
 
-    await notifyWebhooks('trip_diverted', {
+    if (!(await isSimulationPlan(trip.plan_id))) await notifyWebhooks('trip_diverted', {
       trip_id: trip.id,
       trip_number: trip.trip_number,
       supplier: trip.supplier,

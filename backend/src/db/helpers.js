@@ -71,15 +71,27 @@ export async function getActivePlanId() {
   // Ninguno: encontrar-o-crear el plan de la semana actual y activarlo.
   // ON CONFLICT (week_start) hace la operación idempotente: si varias peticiones
   // concurrentes llegan a la vez (el Dashboard lanza ~5), solo se materializa un
-  // plan; las demás reutilizan el existente en vez de duplicar. La restricción
-  // UNIQUE(week_start) lo garantiza a nivel de BBDD.
+  // plan; las demás reutilizan el existente en vez de duplicar. El índice único
+  // parcial weekly_plans_week_start_real (excluye status='simulation') lo
+  // garantiza a nivel de BBDD; el predicado WHERE del ON CONFLICT es necesario
+  // para que Postgres lo use como árbitro.
   const ins = await pool.query(
     `INSERT INTO weekly_plans (week_start, status) VALUES ($1, 'active')
-     ON CONFLICT (week_start) DO UPDATE SET status = 'active'
+     ON CONFLICT (week_start) WHERE status <> 'simulation' DO UPDATE SET status = 'active'
      RETURNING id`,
     [currentMonday]
   );
   return ins.rows[0].id;
+}
+
+/**
+ * ¿Es un plan clon del modo simulación? Los cambios sobre clones no deben
+ * emitir webhooks/avisos (n8n/Telegram): son ficticios hasta que se aplican.
+ */
+export async function isSimulationPlan(planId) {
+  if (!planId) return false;
+  const r = await pool.query('SELECT status FROM weekly_plans WHERE id = $1', [planId]);
+  return r.rows[0]?.status === 'simulation';
 }
 
 /** Devuelve plan_id: de req.query.plan_id / req.body.plan_id o el plan activo (vigente). */

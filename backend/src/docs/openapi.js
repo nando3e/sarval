@@ -386,6 +386,69 @@ Ver \`DOCS/API.md\` en el repo para los flujos típicos.`,
           200: { description: 'Serie de pasos.', content: { 'application/json': { schema: { type: 'array', items: { $ref: '#/components/schemas/SimulationStep' } } } } },
         },
       },
+      post: {
+        tags: ['planning'],
+        summary: 'Entrar en modo simulación (clona el plan)',
+        description: 'Clona el plan indicado (vigente o próxima; por defecto el activo) en un plan aislado con `status = "simulation"`. Todos los endpoints normales funcionan sobre el clon pasándole su `plan_id`. Los recálculos del clon NUNCA emiten webhooks/alertas. Máximo una simulación abierta por usuario (409 si ya existe, con su id).',
+        requestBody: {
+          required: false,
+          content: { 'application/json': { schema: { type: 'object', properties: { plan_id: { type: 'integer', description: 'Plan a clonar. Por defecto, el plan activo.' } } } } },
+        },
+        responses: {
+          201: { description: 'Clon creado y recalculado.', content: { 'application/json': { schema: { type: 'object', properties: { simulation_plan_id: { type: 'integer' }, parent_plan_id: { type: 'integer' } } } } } },
+          400: { description: 'El plan no es la semana vigente ni la próxima.' },
+          409: { description: 'El usuario ya tiene una simulación abierta (se devuelve su `simulation_plan_id`).' },
+        },
+      },
+    },
+    '/api/planning/simulation/mine': {
+      get: {
+        tags: ['planning'],
+        summary: 'Simulación abierta del usuario actual',
+        description: 'Permite retomar una simulación tras recargar la página. Devuelve `null` si no hay ninguna.',
+        responses: {
+          200: { description: 'Simulación abierta o null.', content: { 'application/json': { schema: { type: 'object', nullable: true, properties: { simulation_plan_id: { type: 'integer' }, parent_plan_id: { type: 'integer' }, week_start: { type: 'string', format: 'date' }, created_at: { type: 'string', format: 'date-time' } } } } } },
+        },
+      },
+    },
+    '/api/planning/simulation/{id}/diff': {
+      get: {
+        tags: ['planning'],
+        summary: 'Resumen de cambios de la simulación vs. el plan real',
+        description: 'Altas/bajas/modificados por tabla, KPIs comparados (viajes con retraso, horas paradas, stock mínimo) y `base_changed` si el plan real cambió desde que se clonó. Solo el propietario del clon (o un superadmin).',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Id del plan de simulación.' }],
+        responses: {
+          200: { description: 'Diff calculado.' },
+          403: { description: 'La simulación pertenece a otro usuario.' },
+          404: { description: 'Simulación no encontrada.' },
+        },
+      },
+    },
+    '/api/planning/simulation/{id}/apply': {
+      post: {
+        tags: ['planning'],
+        summary: 'Aplicar la simulación al plan real',
+        description: 'En una transacción: sobrescribe los datos del plan real con los del clon (el id del plan real NO cambia) y borra el clon. Después recalcula el plan real con `notify: true` (webhooks/alertas).',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Id del plan de simulación.' }],
+        responses: {
+          200: { description: 'Cambios aplicados; incluye el diff aplicado y el resultado del recálculo.' },
+          403: { description: 'La simulación pertenece a otro usuario.' },
+          404: { description: 'Simulación no encontrada.' },
+        },
+      },
+    },
+    '/api/planning/simulation/{id}': {
+      delete: {
+        tags: ['planning'],
+        summary: 'Cancelar la simulación',
+        description: 'Borra el clon y todos sus datos. El plan real no se toca.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' }, description: 'Id del plan de simulación.' }],
+        responses: {
+          200: { description: 'Simulación borrada.' },
+          403: { description: 'La simulación pertenece a otro usuario.' },
+          404: { description: 'Simulación no encontrada.' },
+        },
+      },
     },
     '/api/planning/recalculate': {
       post: {

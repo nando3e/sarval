@@ -5,6 +5,7 @@ import swaggerUi from 'swagger-ui-express';
 import { authMiddleware } from './middleware/auth.js';
 import { openapiSpec } from './docs/openapi.js';
 import { runMigrations } from './db/migrate.js';
+import { cleanupStaleSimulations } from './services/simulationPlans.js';
 import authRoutes from './routes/auth.js';
 import parametersRoutes from './routes/parameters.js';
 import planningRoutes from './routes/planning.js';
@@ -84,6 +85,9 @@ app.use((err, _req, res, _next) => {
 runMigrations()
   .catch((err) => console.error('[migrate] runner falló:', err.message))
   .finally(() => {
+    // Janitor de simulaciones huérfanas: al arrancar y cada 6 h.
+    cleanupStaleSimulations();
+    setInterval(() => cleanupStaleSimulations(), 6 * 60 * 60 * 1000);
     app.listen(PORT, () => {
       console.log(`Sarval API listening on http://localhost:${PORT}`);
     });

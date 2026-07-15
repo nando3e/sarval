@@ -4,6 +4,7 @@ import { getActivePlanId, resolvePlanId, getMondayOfWeek, getNextWeekMonday, DAY
 import { notifyWebhooks } from '../services/webhookEmitter.js';
 import { checkAlerts } from '../services/alertChecker.js';
 import { recalcPlan } from '../services/recalc.js';
+import simulationRouter from './simulation.js';
 
 const router = Router();
 
@@ -59,25 +60,27 @@ router.get('/weeks', async (_req, res) => {
     // Puede haber varios planes para la misma semana (duplicados históricos).
     // Elegimos siempre el que TIENE datos (más viajes), no el id más alto, para
     // no mostrar un plan fantasma vacío que oculta los datos reales.
+    // Los clones de simulación comparten week_start (y viajes copiados) con el
+    // plan real: quedan excluidos para que nunca suplanten a la próxima.
     let proximaRow = await pool.query(
       `SELECT wp.id, wp.week_start,
               (SELECT count(*) FROM trips t WHERE t.plan_id = wp.id) AS trip_count
        FROM weekly_plans wp
-       WHERE wp.week_start = $1
+       WHERE wp.week_start = $1 AND wp.status <> 'simulation'
        ORDER BY trip_count DESC, wp.id DESC
        LIMIT 1`,
       [nextMonday]
     );
     if (proximaRow.rows.length === 0) {
       // Idempotente: si otra petición concurrente ya creó la próxima, no se
-      // duplica (UNIQUE(week_start) + ON CONFLICT); se reutiliza la existente.
+      // duplica (índice único parcial + ON CONFLICT); se reutiliza la existente.
       await pool.query(
         `INSERT INTO weekly_plans (week_start, status) VALUES ($1, 'draft')
-         ON CONFLICT (week_start) DO NOTHING`,
+         ON CONFLICT (week_start) WHERE status <> 'simulation' DO NOTHING`,
         [nextMonday]
       );
       proximaRow = await pool.query(
-        'SELECT id, week_start FROM weekly_plans WHERE week_start = $1 LIMIT 1',
+        "SELECT id, week_start FROM weekly_plans WHERE week_start = $1 AND status <> 'simulation' LIMIT 1",
         [nextMonday]
       );
     }
@@ -161,6 +164,10 @@ router.get('/simulation', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener simulación' });
   }
 });
+
+// Modo simulación (POST /, GET /mine, GET /:id/diff, POST /:id/apply, DELETE /:id).
+// El GET /simulation de arriba (pasos del silo) gana por orden de registro.
+router.use('/simulation', simulationRouter);
 
 router.post('/recalculate', async (req, res) => {
   try {

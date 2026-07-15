@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import pool from '../db/pool.js';
-import { resolvePlanId } from '../db/helpers.js';
+import { resolvePlanId, isSimulationPlan } from '../db/helpers.js';
 import { parseFile } from '../services/fileParser.js';
 import { notifyWebhooks } from '../services/webhookEmitter.js';
 import { recalcPlan } from '../services/recalc.js';
@@ -70,7 +70,11 @@ router.post('/', upload.single('file'), async (req, res) => {
       );
     }
 
-    await notifyWebhooks('plan_uploaded', { plan_id: planId, imported: trips.length, parse_errors: errors });
+    // En modo simulación (el plan destino es un clon) no se avisa a nadie:
+    // el upload es un cambio ficticio hasta que se aplique la simulación.
+    if (!(await isSimulationPlan(planId))) {
+      await notifyWebhooks('plan_uploaded', { plan_id: planId, imported: trips.length, parse_errors: errors });
+    }
     await recalcPlan(planId, { trigger: 'upload' });
     res.json({
       message: `Planificación cargada: ${trips.length} viajes importados.`,
